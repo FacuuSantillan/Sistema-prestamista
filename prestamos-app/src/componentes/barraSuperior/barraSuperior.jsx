@@ -1,12 +1,13 @@
 import React from "react";
 import { Landmark, UserPlus, Users, HandCoins, ReceiptText } from "lucide-react";
+import FiltroProvincia from "./filtroPorProvincia";
 
-export default function BarraSuperior({ onOpenModal }) {
+export default function BarraSuperior({ onOpenModal, provinciaSeleccionada, setProvinciaSeleccionada, provincias = [] }) {
   return (
-    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 px-6 md:px-12 mt-6">
+    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 px-6 md:px-12 ">
       {/* LADO IZQUIERDO: Ícono + Títulos */}
-      <div className="flex items-center gap-3.5">
-        <div className="w-12 h-12 rounded-2xl bg-[#0d6b63] text-white flex items-center justify-center shrink-0 shadow-sm">
+      <div className="mt-5 flex items-center gap-3.5">
+        <div className=" w-12 h-12 rounded-2xl bg-[#0d6b63] text-white flex items-center justify-center shrink-0 shadow-sm">
           <Landmark className="w-6 h-6" />
         </div>
 
@@ -21,7 +22,15 @@ export default function BarraSuperior({ onOpenModal }) {
       </div>
 
       {/* LADO DERECHO: Botones de Acción */}
-      <div className="flex flex-wrap items-center gap-2.5">
+      <div className="mt-5 flex flex-wrap items-center gap-2.5">
+
+        {/* Filtro por Provincia */}
+        <FiltroProvincia 
+          provinciaSeleccionada={provinciaSeleccionada} 
+          setProvinciaSeleccionada={setProvinciaSeleccionada} 
+          provincias={provincias} 
+        />
+
         {/* Agregar Inversor */}
         <button 
           onClick={() => onOpenModal && onOpenModal('inversionista')}
