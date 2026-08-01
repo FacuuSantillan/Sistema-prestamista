@@ -5,22 +5,43 @@ import ModalCliente from './componentes/botonesDeAccion/ModalesBotones/modalClie
 import ModalAgregarOpcionPrestamo from './componentes/botonesDeAccion/ModalesBotones/ModalAgregarOpcionPrestamo'
 import ModalAgregarPrestamo from "./componentes/botonesDeAccion/ModalesBotones/ModalAgregarPrestamo"
 import ModalPago from './componentes/botonesDeAccion/ModalesBotones/ModalAgregarPago'
+import ModalDirectorio from "./componentes/barraSuperior/ModalDirectorio"
 import BotonesDeAccion from './componentes/botonesDeAccion/BotonesDeAccion'
 
 export default function App() {
-  // Guarda el tipo de modal abierto: 'inversionista', 'cliente' o null
+  // Guarda el tipo de modal abierto
   const [modalActivo, setModalActivo] = useState(null)
+  
+  // Guarda la pestaña inicial del directorio: 'clientes' o 'inversionistas'
+  const [tipoDirectorio, setTipoDirectorio] = useState('clientes')
 
   const handleRefreshData = () => {
     console.log('Registro creado con éxito. Recargando datos...')
   }
 
+  // Funciones para abrir el directorio en la pestaña deseada
+  const handleOpenDirectorioClientes = () => {
+    setTipoDirectorio('clientes')
+    setModalActivo('directorio')
+  }
+
+  const handleOpenDirectorioInversionistas = () => {
+    setTipoDirectorio('inversionistas')
+    setModalActivo('directorio')
+  }
+
   return (
     <div className="min-h-screen bg-paper">
 
-      <BarraSuperior  />
+      {/* 1. Pasamos los handlers a BarraSuperior */}
+      <BarraSuperior 
+        onOpenClientes={handleOpenDirectorioClientes}
+        onOpenInversionistas={handleOpenDirectorioInversionistas}
+      />
+
       <BotonesDeAccion onOpenModal={(tipo) => setModalActivo(tipo)}/>
 
+      {/* Modales de alta de registros */}
       <ModalInversionista
         isOpen={modalActivo === 'inversionista'}
         onClose={() => setModalActivo(null)}
@@ -45,10 +66,17 @@ export default function App() {
         onSuccess={handleRefreshData}
       />
 
-        <ModalPago
+      <ModalPago
         isOpen={modalActivo === 'pago'}
         onClose={() => setModalActivo(null)}
         onSuccess={handleRefreshData}
+      />
+
+      {/* 2. Modal de Directorio (Clientes / Inversionistas) */}
+      <ModalDirectorio
+        isOpen={modalActivo === 'directorio'}
+        tipoInicial={tipoDirectorio}
+        onClose={() => setModalActivo(null)}
       />
 
     </div>
