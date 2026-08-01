@@ -1,14 +1,21 @@
 import React from "react";
-import { Landmark, UserPlus, Users, HandCoins, ReceiptText } from "lucide-react";
+import { Landmark, Users, Briefcase } from "lucide-react";
 import FiltroProvincia from "./FiltroPorProvincia";
 
-export default function BarraSuperior({ onOpenModal, provinciaSeleccionada, setProvinciaSeleccionada, provincias = [] }) {
-  
-  
+export default function BarraSuperior({ 
+  onOpenModal, 
+  onOpenClientes, 
+  onOpenInversionistas,
+  provinciaSeleccionada, 
+  setProvinciaSeleccionada, 
+  provincias = [] 
+}) {
   return (
-<div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-4 px-6 md:px-12 pb-4 after:absolute after:bottom-0 after:left-6 after:right-6 md:after:left-12 md:after:right-12 after:h-[2px] after:bg-gradient-to-r after:from-transparent after:via-[#0d6b63] after:to-transparent">     
+    <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-4 px-6 md:px-12 pb-4 after:absolute after:bottom-0 after:left-6 after:right-6 md:after:left-12 md:after:right-12 after:h-[2px] after:bg-gradient-to-r after:from-transparent after:via-[#0d6b63] after:to-transparent">     
+      
+      {/* LADO IZQUIERDO: Título e Ícono */}
       <div className="mt-5 flex items-center gap-3.5">
-        <div className=" w-12 h-12 rounded-2xl bg-[#0d6b63] text-white flex items-center justify-center shrink-0 shadow-sm">
+        <div className="w-12 h-12 rounded-2xl bg-[#0d6b63] text-white flex items-center justify-center shrink-0 shadow-sm">
           <Landmark className="w-6 h-6" />
         </div>
 
@@ -22,7 +29,7 @@ export default function BarraSuperior({ onOpenModal, provinciaSeleccionada, setP
         </div>
       </div>
 
-      {/* LADO DERECHO: Botones de Acción */}
+      {/* LADO DERECHO: Filtros y Botones de Exploración */}
       <div className="mt-5 flex flex-wrap items-center gap-2.5">
 
         {/* Filtro por Provincia */}
@@ -32,41 +39,24 @@ export default function BarraSuperior({ onOpenModal, provinciaSeleccionada, setP
           provincias={provincias} 
         />
 
-        {/* Agregar Inversor */}
-        <button 
-          onClick={() => onOpenModal && onOpenModal('inversionista')}
-          className="flex items-center gap-2 bg-[#0d6b63] text-white px-3.5 py-2.5 rounded-xl shadow-sm hover:bg-[#0b5a52] transition-colors duration-200 font-medium text-xs sm:text-sm"
+        {/* Botón Buscar / Perfiles de Clientes */}
+        <button
+          onClick={onOpenClientes}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white border border-line text-slate-700 font-bold text-xs hover:bg-slate-50 hover:border-slate-300 transition-all shadow-xs cursor-pointer"
         >
-          <UserPlus className="w-4 h-4" />
-          <span>Agregar inversor</span>
+          <Users className="w-4 h-4 text-[#0d6b63]" />
+          <span>Ver Clientes</span>
         </button>
 
-        {/* Agregar Cliente */}
-        <button 
-          onClick={() => onOpenModal && onOpenModal('cliente')}
-          className="flex items-center gap-2 bg-[#0d6b63] text-white px-3.5 py-2.5 rounded-xl shadow-sm hover:bg-[#0b5a52] transition-colors duration-200 font-medium text-xs sm:text-sm"
+        {/* Botón Buscar / Perfiles de Inversionistas */}
+        <button
+          onClick={onOpenInversionistas}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#0d6b63]/10 border border-[#0d6b63]/20 text-[#0d6b63] font-bold text-xs hover:bg-[#0d6b63]/20 transition-all shadow-xs cursor-pointer"
         >
-          <Users className="w-4 h-4" />
-          <span>Agregar cliente</span>
+          <Briefcase className="w-4 h-4 text-[#0d6b63]" />
+          <span>Ver Inversionistas</span>
         </button>
 
-        {/* Agregar Préstamo */}
-        <button 
-          onClick={() => onOpenModal && onOpenModal('prestamo')}
-          className="flex items-center gap-2 bg-[#0d6b63] text-white px-3.5 py-2.5 rounded-xl shadow-sm hover:bg-[#0b5a52] transition-colors duration-200 font-medium text-xs sm:text-sm"
-        >
-          <HandCoins className="w-4 h-4" />
-          <span>Agregar préstamo</span>
-        </button>
-
-        {/* Agregar Cobro/Pago */}
-        <button 
-          onClick={() => onOpenModal && onOpenModal('pago')}
-          className="flex items-center gap-2 bg-[#0d6b63] text-white px-3.5 py-2.5 rounded-xl shadow-sm hover:bg-[#0b5a52] transition-colors duration-200 font-medium text-xs sm:text-sm"
-        >
-          <ReceiptText className="w-4 h-4" />
-          <span>Agregar cobro/pago</span>
-        </button>
       </div>
     </div>
   );

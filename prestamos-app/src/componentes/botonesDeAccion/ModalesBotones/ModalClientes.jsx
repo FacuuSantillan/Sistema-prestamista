@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
-import { supabase } from '../../lib/supabaseClient' // Ajustá las barras segun la ubicacion de tu componente
+import { supabase } from '../../../lib/supabaseClient'
 
-export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
+export default function ModalCliente({ isOpen, onClose, onSuccess }) {
   const [provincias, setProvincias] = useState([])
+  const [inversionistas, setInversionistas] = useState([])
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
 
@@ -11,32 +12,59 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
     nombre_completo: '',
     telefono: '',
     provincia_id: '',
-    capital_disponible: ''
+    origen: 'propio', // 'propio' o 'inversionista'
+    inversionista_id: ''
   })
 
-  // Cargar lista de provincias desde Supabase
+  // Cargar provincias e inversionistas desde Supabase
   useEffect(() => {
     if (isOpen) {
-      async function loadProvincias() {
-        const { data, error } = await supabase
+      async function loadData() {
+        // Cargar provincias
+        const { data: provs } = await supabase
           .from('provincias')
           .select('*')
           .order('nombre', { ascending: true })
 
-        if (!error && data) {
-          setProvincias(data)
-          if (data.length > 0) {
-            setFormData((prev) => ({ ...prev, provincia_id: data[0].id }))
-          }
+        // Cargar inversionistas
+        const { data: invs } = await supabase
+          .from('usuarios')
+          .select('id, nombre_completo')
+          .eq('rol', 'inversionista')
+          .order('nombre_completo', { ascending: true })
+
+        if (provs && provs.length > 0) {
+          setProvincias(provs)
+          setFormData((prev) => ({
+            ...prev,
+            provincia_id: prev.provincia_id || provs[0].id
+          }))
+        }
+
+        if (invs) {
+          setInversionistas(invs)
         }
       }
-      loadProvincias()
+      loadData()
     }
   }, [isOpen])
 
   const handleChange = (e) => {
     const { name, value } = e.target
-    setFormData((prev) => ({ ...prev, [name]: value }))
+    setFormData((prev) => {
+      const updated = { ...prev, [name]: value }
+      
+      // Si cambia el origen a 'propio', limpiamos el inversionista_id
+      if (name === 'origen' && value === 'propio') {
+        updated.inversionista_id = ''
+      }
+      // Si cambia a 'inversionista' y no hay uno seleccionado, tomar el primero de la lista
+      if (name === 'origen' && value === 'inversionista' && inversionistas.length > 0) {
+        updated.inversionista_id = inversionistas[0].id
+      }
+
+      return updated
+    })
   }
 
   const handleSubmit = async (e) => {
@@ -44,38 +72,40 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
     setLoading(true)
     setErrorMsg('')
 
+    // Validación si eligió 'inversionista' pero no seleccionó ninguno
+    if (formData.origen === 'inversionista' && !formData.inversionista_id) {
+      setErrorMsg('Debes seleccionar un inversionista asignado.')
+      setLoading(false)
+      return
+    }
+
     try {
-      // Objeto a insertar en Supabase
       const payload = {
         nombre_completo: formData.nombre_completo,
         telefono: formData.telefono,
         provincia_id: formData.provincia_id,
-        capital_disponible: parseFloat(formData.capital_disponible || 0),
-        rol: 'inversionista'
+        // Si el origen es 'propio', inversionista_id queda en null
+        inversionista_id: formData.origen === 'propio' ? null : formData.inversionista_id
       }
 
-      // Si tenés columna 'inversor_nombre' o 'alias' en la DB, la sumamos al payload
-      if (formData.inversor_nombre) {
-        payload.inversor_nombre = formData.inversor_nombre
-      }
-
-      const { error } = await supabase.from('usuarios').insert([payload])
+      const { error } = await supabase.from('clientes').insert([payload])
 
       if (error) throw error
 
-      // Reset del formulario
+      // Reset de formulario
       setFormData({
         nombre_completo: '',
         telefono: '',
         provincia_id: provincias[0]?.id || '',
-        capital_disponible: '',
+        origen: 'propio',
+        inversionista_id: ''
       })
 
       if (onSuccess) onSuccess()
       onClose()
     } catch (err) {
-      console.error('Error detallado al guardar inversionista:', err)
-      setErrorMsg(err.message || 'No se pudo guardar el inversor. Intentalo de nuevo.')
+      console.error('Error al guardar cliente:', err)
+      setErrorMsg(err.message || 'No se pudo guardar el cliente. Intentalo de nuevo.')
     } finally {
       setLoading(false)
     }
@@ -109,17 +139,17 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
         {/* Formulario */}
         <form onSubmit={handleSubmit} className="space-y-4">
           
-          {/* Tipo de movimiento (Fijo en Inversionista) */}
+          {/* Tipo de movimiento (Fijo en Cliente) */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
               Tipo de movimiento
             </label>
             <select
               disabled
-              value="inversionista"
+              value="cliente"
               className="w-full rounded-2xl border border-line bg-white/70 px-4 py-3 text-sm font-medium text-slate-800 cursor-not-allowed"
             >
-              <option value="inversionista">Inversionista</option>
+              <option value="cliente">Cliente</option>
             </select>
           </div>
 
@@ -135,7 +165,7 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
                 required
                 value={formData.nombre_completo}
                 onChange={handleChange}
-                placeholder="Ej. Facundo Santillán"
+                placeholder="Ej. María González"
                 className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               />
             </div>
@@ -149,51 +179,56 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
                 name="telefono"
                 value={formData.telefono}
                 onChange={handleChange}
-                placeholder="Ej. 381 1234567"
+                placeholder="Ej. 381 9876543"
                 className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               />
             </div>
           </div>
 
-          {/* Fila 2: Provincia asignada y Capital disponible */}
+          {/* Fila 2: Provincia y Origen del cliente */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                Provincia asignada
+                Origen del cliente
               </label>
               <select
-                name="provincia_id"
-                required
-                value={formData.provincia_id}
+                name="origen"
+                value={formData.origen}
                 onChange={handleChange}
                 className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               >
-                {provincias.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nombre}
-                  </option>
-                ))}
+                <option value="propio">Propio (Administrador)</option>
+                <option value="inversionista">Inversionista asignado</option>
               </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Capital a invertir ($)
-              </label>
-              <input
-                type="number"
-                name="capital_disponible"
-                min="0"
-                step="any"
-                required
-                value={formData.capital_disponible}
-                onChange={handleChange}
-                placeholder="0"
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
-              />
             </div>
           </div>
 
+          {/* Selector condicional: Inversionista Asignado (Solo se muestra si Origen = 'inversionista') */}
+          {formData.origen === 'inversionista' && (
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Inversionista asignado
+              </label>
+              <select
+                name="inversionista_id"
+                required={formData.origen === 'inversionista'}
+                value={formData.inversionista_id}
+                onChange={handleChange}
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+              >
+                {inversionistas.length === 0 ? (
+                  <option value="">No hay inversionistas registrados</option>
+                ) : (
+                  inversionistas.map((inv) => (
+                    <option key={inv.id} value={inv.id}>
+                      {inv.nombre_completo}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+          )}
 
           {errorMsg && (
             <p className="text-xs text-red-600 font-semibold bg-red-50 p-2.5 rounded-xl border border-red-200">

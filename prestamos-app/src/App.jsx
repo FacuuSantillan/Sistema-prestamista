@@ -1,7 +1,11 @@
 import React, { useState } from 'react'
 import BarraSuperior from './componentes/barraSuperior/BarraSuperior'
-import ModalInversionista from './componentes/ModalesBotones/modalInversionista'
-import ModalCliente from './componentes/ModalesBotones/modalClientes'
+import ModalInversionista from './componentes/botonesDeAccion/ModalesBotones/modalInversionista'
+import ModalCliente from './componentes/botonesDeAccion/ModalesBotones/modalClientes'
+import ModalAgregarOpcionPrestamo from './componentes/botonesDeAccion/ModalesBotones/ModalAgregarOpcionPrestamo'
+import ModalAgregarPrestamo from "./componentes/botonesDeAccion/ModalesBotones/ModalAgregarPrestamo"
+import ModalPago from './componentes/botonesDeAccion/ModalesBotones/ModalAgregarPago'
+import BotonesDeAccion from './componentes/botonesDeAccion/BotonesDeAccion'
 
 export default function App() {
   // Guarda el tipo de modal abierto: 'inversionista', 'cliente' o null
@@ -13,7 +17,9 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-paper">
-      <BarraSuperior onOpenModal={(tipo) => setModalActivo(tipo)} />
+
+      <BarraSuperior  />
+      <BotonesDeAccion onOpenModal={(tipo) => setModalActivo(tipo)}/>
 
       <ModalInversionista
         isOpen={modalActivo === 'inversionista'}
@@ -26,6 +32,25 @@ export default function App() {
         onClose={() => setModalActivo(null)}
         onSuccess={handleRefreshData}
       />
+
+      <ModalAgregarOpcionPrestamo
+        isOpen={modalActivo === 'opcionPrestamo'}
+        onClose={() => setModalActivo(null)}
+        onSuccess={handleRefreshData}
+      />
+
+      <ModalAgregarPrestamo
+        isOpen={modalActivo === 'prestamo'}
+        onClose={() => setModalActivo(null)}
+        onSuccess={handleRefreshData}
+      />
+
+        <ModalPago
+        isOpen={modalActivo === 'pago'}
+        onClose={() => setModalActivo(null)}
+        onSuccess={handleRefreshData}
+      />
+
     </div>
   )
 }
