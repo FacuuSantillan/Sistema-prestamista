@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
-import { supabase } from '../lib/supabaseClient' // Ajustá las barras segun la ubicacion de tu componente
+import { supabase } from '../../lib/supabaseClient' // Ajustá las barras segun la ubicacion de tu componente
 
 export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
   const [provincias, setProvincias] = useState([])
@@ -11,8 +11,7 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
     nombre_completo: '',
     telefono: '',
     provincia_id: '',
-    capital_disponible: '',
-    inversor_nombre: ''
+    capital_disponible: ''
   })
 
   // Cargar lista de provincias desde Supabase
@@ -70,7 +69,6 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
         telefono: '',
         provincia_id: provincias[0]?.id || '',
         capital_disponible: '',
-        inversor_nombre: ''
       })
 
       if (onSuccess) onSuccess()
@@ -196,20 +194,6 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
             </div>
           </div>
 
-          {/* Nombre del inversor (Alias) */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              Nombre del inversor (Alias)
-            </label>
-            <input
-              type="text"
-              name="inversor_nombre"
-              value={formData.inversor_nombre}
-              onChange={handleChange}
-              placeholder="Ej. Inversiones FS"
-              className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
-            />
-          </div>
 
           {errorMsg && (
             <p className="text-xs text-red-600 font-semibold bg-red-50 p-2.5 rounded-xl border border-red-200">

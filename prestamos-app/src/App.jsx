@@ -1,28 +1,29 @@
 import React, { useState } from 'react'
-import BarraSuperior from './componentes/barraSuperior/barraSuperior'
-import ModalInversionista from './componentes/ModalInversionista'
+import BarraSuperior from './componentes/barraSuperior/BarraSuperior'
+import ModalInversionista from './componentes/ModalesBotones/modalInversionista'
+import ModalCliente from './componentes/ModalesBotones/modalClientes'
 
 export default function App() {
-  const [modalInversionistaOpen, setModalInversionistaOpen] = useState(false)
-
-  const handleOpenModal = (tipo) => {
-    if (tipo === 'inversionista') {
-      setModalInversionistaOpen(true)
-    }
-  }
+  // Guarda el tipo de modal abierto: 'inversionista', 'cliente' o null
+  const [modalActivo, setModalActivo] = useState(null)
 
   const handleRefreshData = () => {
-    // Acá podés volver a cargar las métricas o la lista de registros recientes
-    console.log('Inversor creado con éxito. Recargando datos...')
+    console.log('Registro creado con éxito. Recargando datos...')
   }
 
   return (
     <div className="min-h-screen bg-paper">
-      <BarraSuperior onOpenModal={handleOpenModal} />
+      <BarraSuperior onOpenModal={(tipo) => setModalActivo(tipo)} />
 
       <ModalInversionista
-        isOpen={modalInversionistaOpen}
-        onClose={() => setModalInversionistaOpen(false)}
+        isOpen={modalActivo === 'inversionista'}
+        onClose={() => setModalActivo(null)}
+        onSuccess={handleRefreshData}
+      />
+
+      <ModalCliente
+        isOpen={modalActivo === 'cliente'}
+        onClose={() => setModalActivo(null)}
         onSuccess={handleRefreshData}
       />
     </div>
