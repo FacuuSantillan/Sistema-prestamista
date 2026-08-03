@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { X, Calculator } from 'lucide-react'
-import { supabase } from '../../../lib/supabaseClient' // Ajustá la ruta según tu proyecto
+import { supabase } from '../../../lib/supabaseClient'
 
 export default function ModalPrestamo({ isOpen, onClose, onSuccess }) {
   const [provincias, setProvincias] = useState([])
@@ -32,7 +32,7 @@ export default function ModalPrestamo({ isOpen, onClose, onSuccess }) {
           const [resProvs, resClis, resInvs, resPlanes] = await Promise.all([
             supabase.from('provincias').select('*').order('nombre', { ascending: true }),
             supabase.from('clientes').select('id, nombre_completo, provincia_id').order('nombre_completo', { ascending: true }),
-            supabase.from('usuarios').select('id, nombre_completo').eq('rol', 'inversionista').order('nombre_completo', { ascending: true }),
+            supabase.from('usuarios').select('id, nombre_completo, provincia_id').order('nombre_completo', { ascending: true }),
             supabase.from('planes_prestamo').select('*').order('monto', { ascending: true })
           ])
 
@@ -126,29 +126,38 @@ export default function ModalPrestamo({ isOpen, onClose, onSuccess }) {
     setLoading(true)
     setErrorMsg('')
 
-    if (!formData.cliente_id) {
-      setErrorMsg('Debes seleccionar un cliente.')
-      setLoading(false)
-      return
-    }
-
-    if (monto <= 0) {
-      setErrorMsg('Debes seleccionar una opción de préstamo válida.')
+    // Validación previa del monto
+    if (isNaN(monto) || monto <= 0) {
+      setErrorMsg('Por favor, ingresá un monto de préstamo válido.')
       setLoading(false)
       return
     }
 
     try {
+      // 1. Buscamos el inversionista seleccionado
+      const inversorSeleccionado = inversionistas.find(
+        (inv) => inv.id === formData.inversionista_id
+      )
+
+      // 2. Buscamos el cliente seleccionado
+      const clienteSeleccionado = clientes.find(
+        (c) => c.id === formData.cliente_id
+      )
+
+      // 3. Heredamos la provincia del inversor o la del cliente si es capital propio
+      const provinciaIdHeredada =
+        inversorSeleccionado?.provincia_id || clienteSeleccionado?.provincia_id || formData.provincia_id || null
+
       const payload = {
         cliente_id: formData.cliente_id,
-        inversionista_id: formData.inversionista_id ? formData.inversionista_id : null,
-        provincia_id: formData.provincia_id,
-        monto_capital: monto,
-        tasa_interes: tasa,
-        monto_total_pagar: montoTotalDevolver,
-        cantidad_cuotas: cuotas,
+        inversionista_id: formData.inversionista_id || null,
+        provincia_id: provinciaIdHeredada,
+        monto_capital: monto,                             // 👈 Mapeo correcto de monto_prestado
+        tasa_interes: tasa,                           // 👈 Agregamos la tasa de interés requerida
+        monto_total_pagar: montoTotalDevolver,           // 👈 Mapeo correcto del total calculado
         monto_cuota: valorCuota,
-        frecuencia: formData.frecuencia_pago,
+        cantidad_cuotas: cuotas,                         // 👈 Mapeo correcto de plazo_cuotas
+        frecuencia: formData.frecuencia_pago || 'mensual',// 👈 Mapeo correcto de frecuencia_pago
         fecha_inicio: formData.fecha_inicio,
         estado: 'activo'
       }
@@ -160,8 +169,8 @@ export default function ModalPrestamo({ isOpen, onClose, onSuccess }) {
       if (onSuccess) onSuccess()
       onClose()
     } catch (err) {
-      console.error('Error al guardar préstamo:', err)
-      setErrorMsg(err.message || 'No se pudo guardar el préstamo. Intentalo de nuevo.')
+      console.error('Error al guardar el préstamo:', err)
+      setErrorMsg(err.message || 'No se pudo crear el préstamo.')
     } finally {
       setLoading(false)
     }
@@ -186,7 +195,7 @@ export default function ModalPrestamo({ isOpen, onClose, onSuccess }) {
           <button
             onClick={onClose}
             type="button"
-            className="rounded-xl p-2 text-slate-400 hover:bg-black/5 hover:text-slate-700 transition-colors"
+            className="rounded-xl p-2 text-slate-400 hover:bg-black/5 hover:text-slate-700 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -303,40 +312,19 @@ export default function ModalPrestamo({ isOpen, onClose, onSuccess }) {
             </div>
           </div>
 
-          {/* 3. Fila: Provincia asignada y Fecha de inicio */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Provincia
-              </label>
-              <select
-                name="provincia_id"
-                required
-                value={formData.provincia_id}
-                onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
-              >
-                {provincias.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nombre}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                Fecha de inicio / emisión
-              </label>
-              <input
-                type="date"
-                name="fecha_inicio"
-                required
-                value={formData.fecha_inicio}
-                onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
-              />
-            </div>
+          {/* 3. Fila: Fecha de emisión */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Fecha de inicio / emisión
+            </label>
+            <input
+              type="date"
+              name="fecha_inicio"
+              required
+              value={formData.fecha_inicio}
+              onChange={handleChange}
+              className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+            />
           </div>
 
           {/* 4. Fila: Cantidad de Cuotas y Frecuencia de Pago */}
@@ -414,14 +402,14 @@ export default function ModalPrestamo({ isOpen, onClose, onSuccess }) {
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2.5 rounded-2xl border border-line bg-white font-bold text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+              className="px-5 py-2.5 rounded-2xl border border-line bg-white font-bold text-sm text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-5 py-2.5 rounded-2xl bg-[#0d6b63] text-white font-bold text-sm shadow-sm hover:bg-[#0b5a52] transition-colors disabled:opacity-50"
+              className="px-5 py-2.5 rounded-2xl bg-[#0d6b63] text-white font-bold text-sm shadow-sm hover:bg-[#0b5a52] transition-colors disabled:opacity-50 cursor-pointer"
             >
               {loading ? 'Guardando...' : 'Guardar préstamo'}
             </button>

@@ -3,7 +3,6 @@ import { X } from 'lucide-react'
 import { supabase } from '../../../lib/supabaseClient'
 
 export default function ModalCliente({ isOpen, onClose, onSuccess }) {
-  const [provincias, setProvincias] = useState([])
   const [inversionistas, setInversionistas] = useState([])
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
@@ -11,68 +10,62 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
   const [formData, setFormData] = useState({
     nombre_completo: '',
     telefono: '',
-    provincia_id: '',
-    origen: 'propio', // 'propio' o 'inversionista'
+    origen: 'propio',
     inversionista_id: ''
   })
 
-  // Cargar provincias e inversionistas desde Supabase
+  // 1. Resetear el formulario al abrir el modal y cargar la lista de Inversionistas Activos
   useEffect(() => {
     if (isOpen) {
-      async function loadData() {
-        // Cargar provincias
-        const { data: provs } = await supabase
-          .from('provincias')
-          .select('*')
-          .order('nombre', { ascending: true })
+      setFormData({
+        nombre_completo: '',
+        telefono: '',
+        origen: 'propio',
+        inversionista_id: ''
+      })
+      setErrorMsg('')
 
-        // Cargar inversionistas
-        const { data: invs } = await supabase
-          .from('usuarios')
-          .select('id, nombre_completo')
-          .eq('rol', 'inversionista')
-          .order('nombre_completo', { ascending: true })
+      async function fetchInversionistas() {
+        try {
+          // Traemos únicamente a los inversionistas con estado activo
+          const { data, error } = await supabase
+            .from('usuarios')
+            .select('id, nombre_completo, nombre')
+            .eq('activo', true)
+            .order('nombre_completo', { ascending: true })
 
-        if (provs && provs.length > 0) {
-          setProvincias(provs)
-          setFormData((prev) => ({
-            ...prev,
-            provincia_id: prev.provincia_id || provs[0].id
-          }))
-        }
+          if (error) throw error
 
-        if (invs) {
-          setInversionistas(invs)
+          setInversionistas(data || [])
+          if (data && data.length > 0) {
+            setFormData((prev) => ({ ...prev, inversionista_id: data[0].id }))
+          }
+        } catch (err) {
+          console.error('Error al cargar inversionistas:', err)
         }
       }
-      loadData()
+
+      fetchInversionistas()
     }
   }, [isOpen])
 
   const handleChange = (e) => {
     const { name, value } = e.target
-    setFormData((prev) => {
-      const updated = { ...prev, [name]: value }
-      
-      // Si cambia el origen a 'propio', limpiamos el inversionista_id
-      if (name === 'origen' && value === 'propio') {
-        updated.inversionista_id = ''
-      }
-      // Si cambia a 'inversionista' y no hay uno seleccionado, tomar el primero de la lista
-      if (name === 'origen' && value === 'inversionista' && inversionistas.length > 0) {
-        updated.inversionista_id = inversionistas[0].id
-      }
-
-      return updated
-    })
+    setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
+  // 2. Guardar Cliente en Supabase
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
     setErrorMsg('')
 
-    // Validación si eligió 'inversionista' pero no seleccionó ninguno
+    if (!formData.nombre_completo.trim()) {
+      setErrorMsg('El nombre completo es obligatorio.')
+      setLoading(false)
+      return
+    }
+
     if (formData.origen === 'inversionista' && !formData.inversionista_id) {
       setErrorMsg('Debes seleccionar un inversionista asignado.')
       setLoading(false)
@@ -81,31 +74,21 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
 
     try {
       const payload = {
-        nombre_completo: formData.nombre_completo,
-        telefono: formData.telefono,
-        provincia_id: formData.provincia_id,
-        // Si el origen es 'propio', inversionista_id queda en null
-        inversionista_id: formData.origen === 'propio' ? null : formData.inversionista_id
+        nombre_completo: formData.nombre_completo.trim(),
+        telefono: formData.telefono.trim() || null,
+        inversionista_id: formData.origen === 'inversionista' ? formData.inversionista_id : null,
+        activo: true
       }
 
       const { error } = await supabase.from('clientes').insert([payload])
 
       if (error) throw error
 
-      // Reset de formulario
-      setFormData({
-        nombre_completo: '',
-        telefono: '',
-        provincia_id: provincias[0]?.id || '',
-        origen: 'propio',
-        inversionista_id: ''
-      })
-
       if (onSuccess) onSuccess()
       onClose()
     } catch (err) {
       console.error('Error al guardar cliente:', err)
-      setErrorMsg(err.message || 'No se pudo guardar el cliente. Intentalo de nuevo.')
+      setErrorMsg(err.message || 'No se pudo guardar el registro del cliente.')
     } finally {
       setLoading(false)
     }
@@ -130,7 +113,7 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
           <button
             onClick={onClose}
             type="button"
-            className="rounded-xl p-2 text-slate-400 hover:bg-black/5 hover:text-slate-700 transition-colors"
+            className="rounded-xl p-2 text-slate-400 hover:bg-black/5 hover:text-slate-700 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -185,9 +168,8 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
             </div>
           </div>
 
-          {/* Fila 2: Provincia y Origen del cliente */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        
+          {/* Fila 2: Origen del cliente */}
+          <div className="grid grid-cols-1 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 Origen del cliente
@@ -204,7 +186,7 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
             </div>
           </div>
 
-          {/* Selector condicional: Inversionista Asignado (Solo se muestra si Origen = 'inversionista') */}
+          {/* Selector condicional: Inversionista Asignado */}
           {formData.origen === 'inversionista' && (
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -218,11 +200,11 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
                 className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               >
                 {inversionistas.length === 0 ? (
-                  <option value="">No hay inversionistas registrados</option>
+                  <option value="">No hay inversionistas activos registrados</option>
                 ) : (
                   inversionistas.map((inv) => (
                     <option key={inv.id} value={inv.id}>
-                      {inv.nombre_completo}
+                      {inv.nombre_completo || inv.nombre}
                     </option>
                   ))
                 )}
@@ -241,14 +223,14 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2.5 rounded-2xl border border-line bg-white font-bold text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+              className="px-5 py-2.5 rounded-2xl border border-line bg-white font-bold text-sm text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-5 py-2.5 rounded-2xl bg-[#0d6b63] text-white font-bold text-sm shadow-sm hover:bg-[#0b5a52] transition-colors disabled:opacity-50"
+              className="px-5 py-2.5 rounded-2xl bg-[#0d6b63] text-white font-bold text-sm shadow-sm hover:bg-[#0b5a52] transition-colors disabled:opacity-50 cursor-pointer"
             >
               {loading ? 'Guardando...' : 'Guardar movimiento'}
             </button>

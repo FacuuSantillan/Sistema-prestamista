@@ -66,17 +66,16 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
       setFetchingPrestamos(true)
       try {
         const { data, error } = await supabase
-          .from('prestamos')
-          .select('*')
-          .eq('cliente_id', formData.cliente_id)
-          .eq('estado', 'activo')
-          .order('fecha_inicio', { ascending: false })
+  .from('prestamos')
+  .select('*')
+  .eq('cliente_id', formData.cliente_id)
+  .eq('estado', 'activo') // 👈 Esto evita que se sigan registrando cobros sobre préstamos ya cancelados
+  .order('fecha_inicio', { ascending: false })
 
         if (error) throw error
 
         if (data && data.length > 0) {
           setPrestamosCliente(data)
-          // Asignamos inmediatamente el ID del primer préstamo
           setFormData((prev) => ({ ...prev, prestamo_id: data[0].id }))
         } else {
           setPrestamosCliente([])
@@ -93,7 +92,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
     loadPrestamos()
   }, [formData.cliente_id, isOpen])
 
-  // 3. Cada vez que cambia el prestamo_id (por cambio de cliente o por el select), calculamos las cuotas y saldos
+  // 3. Calculamos cuotas y saldos al cambiar el préstamo seleccionado
   useEffect(() => {
     if (!formData.prestamo_id || prestamosCliente.length === 0) return
 
@@ -102,17 +101,15 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
 
     async function calcularSaldos() {
       try {
-       const { data: pagos, error } = await supabase
-    .from('pagos')
-    .select('monto_cobrado') // 👈 Se cambió a monto_cobrado
-    .eq('prestamo_id', prestamo.id)
+        const { data: pagos, error } = await supabase
+          .from('pagos')
+          .select('monto_cobrado')
+          .eq('prestamo_id', prestamo.id)
 
-  if (error) throw error
+        if (error) throw error
 
-  // Mapeo del acumulado con monto_cobrado
-  const totalPagado = pagos ? pagos.reduce((acc, curr) => acc + Number(curr.monto_cobrado || curr.monto_pago || 0), 0) : 0
+        const totalPagado = pagos ? pagos.reduce((acc, curr) => acc + Number(curr.monto_cobrado || curr.monto_pago || 0), 0) : 0
         
-        // Mapeo seguro con nombres de columnas de Supabase
         const montoTotalPagar = Number(prestamo.monto_total_pagar || prestamo.monto_total || 0)
         const cantidadCuotas = Math.max(1, Number(prestamo.cantidad_cuotas || prestamo.plazo_cuotas || 1))
         
@@ -180,7 +177,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  // Guardar Pago
+  // Guardar Pago y Verificar Finalización del Préstamo
  const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
@@ -202,19 +199,44 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
     const prestamoActual = prestamosCliente.find((p) => p.id === formData.prestamo_id)
 
     try {
+      // 1. Registrar el cobro en la tabla pagos
       const payload = {
         prestamo_id: formData.prestamo_id,
         cliente_id: formData.cliente_id,
         inversionista_id: prestamoActual?.inversionista_id || null,
-        monto_cobrado: monto, // 👈 Se cambió 'monto_pago' por 'monto_cobrado'
+        monto_cobrado: monto,
         metodo_pago: formData.metodo_pago,
         fecha_pago: formData.fecha_pago,
         observaciones: formData.observaciones
       }
 
-      const { error } = await supabase.from('pagos').insert([payload])
+      const { error: errorPago } = await supabase.from('pagos').insert([payload])
+      if (errorPago) throw errorPago
 
-      if (error) throw error
+      // 2. Consultar directamente a la DB la suma real de TODOS los cobros de este préstamo
+      const { data: todosLosPagos, error: errSum } = await supabase
+        .from('pagos')
+        .select('monto_cobrado')
+        .eq('prestamo_id', formData.prestamo_id)
+
+      if (errSum) throw errSum
+
+      const totalAcumuladoDB = (todosLosPagos || []).reduce(
+        (acc, p) => acc + Number(p.monto_cobrado || 0),
+        0
+      )
+
+      const montoTotalPagar = Number(prestamoActual?.monto_total_pagar || prestamoActual?.monto_total || 0)
+
+      // 3. Si el acumulado real cubre el monto total a devolver, se pasa a 'finalizado'
+      if (totalAcumuladoDB >= (montoTotalPagar - 0.01)) {
+        const { error: errorPrestamo } = await supabase
+          .from('prestamos')
+          .update({ estado: 'finalizado' })
+          .eq('id', formData.prestamo_id)
+
+        if (errorPrestamo) throw errorPrestamo
+      }
 
       if (onSuccess) onSuccess()
       onClose()
@@ -245,7 +267,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
           <button
             onClick={onClose}
             type="button"
-            className="rounded-xl p-2 text-slate-400 hover:bg-black/5 hover:text-slate-700 transition-colors"
+            className="rounded-xl p-2 text-slate-400 hover:bg-black/5 hover:text-slate-700 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -433,14 +455,14 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2.5 rounded-2xl border border-line bg-white font-bold text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+              className="px-5 py-2.5 rounded-2xl border border-line bg-white font-bold text-sm text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={loading || prestamosCliente.length === 0}
-              className="px-5 py-2.5 rounded-2xl bg-[#0d6b63] text-white font-bold text-sm shadow-sm hover:bg-[#0b5a52] transition-colors disabled:opacity-50"
+              className="px-5 py-2.5 rounded-2xl bg-[#0d6b63] text-white font-bold text-sm shadow-sm hover:bg-[#0b5a52] transition-colors disabled:opacity-50 cursor-pointer"
             >
               {loading ? 'Registrando...' : 'Registrar cobro'}
             </button>
