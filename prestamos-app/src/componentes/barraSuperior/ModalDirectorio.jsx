@@ -42,6 +42,7 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
   useEffect(() => {
     if (!isOpen) return
     let isMounted = true
+    
 
     async function fetchData() {
       setLoading(true)
@@ -106,7 +107,7 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
         if (idInversionista) {
           const { data: invData, error: errInv } = await supabase
             .from('usuarios')
-            .select('id, nombre_completo')
+            .select('id, nombre_completo, nombre')
             .eq('id', idInversionista)
             .maybeSingle()
 
@@ -139,21 +140,15 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
         setPagos(pagosData || [])
 
       } else {
-        // VISTA INVERSIONISTA
-        let { data: prestamosData, error: errP } = await supabase
+        // VISTA INVERSIONISTA (Búsqueda corregida para evitar el error 400)
+        const { data: prestamosData, error: errP } = await supabase
           .from('prestamos')
           .select('*')
           .eq('inversionista_id', item.id)
           .order('fecha_inicio', { ascending: false })
 
-        if (errP || !prestamosData || prestamosData.length === 0) {
-          const { data: pAlt } = await supabase
-            .from('prestamos')
-            .select('*')
-            .eq('usuario_id', item.id)
-            .order('fecha_inicio', { ascending: false })
-
-          if (pAlt && pAlt.length > 0) prestamosData = pAlt
+        if (errP) {
+          console.warn('Error al consultar préstamos del inversionista:', errP.message)
         }
 
         const prestamosFinales = prestamosData || []
@@ -212,9 +207,20 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
   }
 
   // --- CÁLCULOS FINANCIEROS PARA EL INVERSIONISTA ---
-  const totalCapitalInvertido = prestamos.reduce((acc, p) => acc + Number(p.monto_capital || 0), 0)
-  const totalRetornoEsperado = prestamos.reduce((acc, p) => acc + Number(p.monto_total_pagar || p.monto_total || 0), 0)
-  const totalInteresesGanados = Math.max(0, totalRetornoEsperado - totalCapitalInvertido)
+const totalCapitalInvertido = Number(itemSeleccionado?.capital_disponible || 0)
+
+// 2. Retorno esperado calculado desde la suma de todos los préstamos vinculados
+const totalRetornoEsperado = prestamos.reduce(
+  (acc, p) => acc + Number(p.monto_total_pagar || p.monto_total || 0),
+  0
+)
+
+// 3. Intereses ganados (Diferencia entre retorno esperado y el capital de los préstamos)
+const totalCapitalColocado = prestamos.reduce(
+  (acc, p) => acc + Number(p.monto_capital || p.monto || 0),
+  0
+)
+const totalInteresesGanados = Math.max(0, totalRetornoEsperado - totalCapitalColocado)
 
   const formatearFecha = (fechaRaw) => {
     if (!fechaRaw) return ''
@@ -408,7 +414,7 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
                     <div className="p-4 rounded-2xl bg-white border border-line flex flex-col justify-between shadow-xs">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                          GANANCIA INTERESES
+                          GANANCIA ESPERADA (INTERESES)
                         </span>
                         <div className="p-2 rounded-xl bg-emerald-50 text-emerald-700">
                           <TrendingUp className="w-4 h-4" />
@@ -423,7 +429,7 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
                     <div className="p-4 rounded-2xl bg-white border border-line flex flex-col justify-between shadow-xs">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                          TOTAL RETORNO
+                          CAPITAL TOTAL CON INTERESES
                         </span>
                         <div className="p-2 rounded-xl bg-[#0d6b63]/10 text-[#0d6b63]">
                           <Wallet className="w-4 h-4" />
@@ -448,40 +454,55 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
                         <p className="text-xs text-slate-400 bg-white p-4 rounded-2xl border border-line">Sin préstamos asignados a este cliente.</p>
                       ) : (
                         <div className="space-y-2">
-                          {prestamos.map((p) => (
-                            <div key={p.id} className="p-4 rounded-2xl bg-white border border-line flex items-center justify-between">
-                              <div>
-                                <span className="text-xs text-slate-500 font-medium block">
-                                  Capital entregado:
-                                </span>
-                                <span className="text-base font-bold text-slate-800">
-                                  ${Number(p.monto_capital || 0).toLocaleString('es-AR')} 
-                                  <span className="text-xs font-normal text-slate-500 ml-1">({p.cantidad_cuotas} cuotas {p.frecuencia || 'mensual'})</span>
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-3">
-                                <div className="text-right">
-                                  <span className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-full ${
-                                    p.estado === 'finalizado' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
-                                  }`}>
-                                    {p.estado === 'finalizado' ? '✓ COBRADO' : p.estado}
+                          {prestamos.map((p) => {
+                            const capital = Number(p.monto_capital || p.monto || 0);
+                            const totalPagar = Number(p.monto_total_pagar || p.monto_total || 0);
+                            const porcentajeInteres = p.porcentaje_interes !== undefined 
+                              ? p.porcentaje_interes 
+                              : (capital > 0 ? (((totalPagar - capital) / capital) * 100).toFixed(0) : 0);
+
+                            return (
+                              <div key={p.id} className="p-4 rounded-2xl bg-white border border-line flex items-center justify-between">
+                                <div>
+                                  <span className="text-xs text-slate-500 font-medium block">
+                                    Capital entregado:
                                   </span>
-                                  <span className="text-xs text-slate-500 font-bold block mt-1">
-                                    Total a devolver: ${Number(p.monto_total_pagar || 0).toLocaleString('es-AR')}
+                                  <span className="text-base font-bold text-slate-800">
+                                    ${capital.toLocaleString('es-AR')} 
+                                    <span className="text-xs font-normal text-slate-500 ml-1">
+                                      ({p.cantidad_cuotas} cuotas {p.frecuencia || 'mensual'})
+                                    </span>
                                   </span>
                                 </div>
-                                {onVerFichaPrestamo && (
-                                  <button
-                                    onClick={() => onVerFichaPrestamo(p)}
-                                    title="Ver Ficha Técnica"
-                                    className="p-2.5 rounded-xl bg-[#0d6b63]/10 text-[#0d6b63] hover:bg-[#0d6b63] hover:text-white transition-colors cursor-pointer"
-                                  >
-                                    <Eye className="w-4 h-4" />
-                                  </button>
-                                )}
+                                <div className="flex items-center gap-3">
+                                  <div className="text-right">
+                                    <div className="flex items-center justify-end gap-2 mb-1">
+                                      <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                                        {porcentajeInteres}% interés
+                                      </span>
+                                      <span className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-full ${
+                                        p.estado === 'finalizado' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
+                                      }`}>
+                                        {p.estado === 'finalizado' ? '✓ COBRADO' : p.estado}
+                                      </span>
+                                    </div>
+                                    <span className="text-xs text-slate-500 font-bold block mt-1">
+                                      Total a devolver: ${totalPagar.toLocaleString('es-AR')}
+                                    </span>
+                                  </div>
+                                  {onVerFichaPrestamo && (
+                                    <button
+                                      onClick={() => onVerFichaPrestamo(p)}
+                                      title="Ver Ficha Técnica"
+                                      className="p-2.5 rounded-xl bg-[#0d6b63]/10 text-[#0d6b63] hover:bg-[#0d6b63] hover:text-white transition-colors cursor-pointer"
+                                    >
+                                      <Eye className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -558,13 +579,13 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
                                   Monto Capital:
                                 </span>
                                 <span className="text-base font-bold text-[#0d6b63]">
-                                  ${Number(p.monto_capital || 0).toLocaleString('es-AR')}
+                                  ${Number(p.monto_capital || p.monto || 0).toLocaleString('es-AR')}
                                 </span>
                               </div>
                               <div className="flex items-center gap-3">
                                 <div className="text-right">
                                   <span className="text-xs font-bold text-slate-700 block">
-                                    Retorno Esperado: ${Number(p.monto_total_pagar || 0).toLocaleString('es-AR')}
+                                    Retorno Esperado: ${Number(p.monto_total_pagar || p.monto_total || 0).toLocaleString('es-AR')}
                                   </span>
                                   <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full inline-block mt-1 ${
                                     p.estado === 'finalizado' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
