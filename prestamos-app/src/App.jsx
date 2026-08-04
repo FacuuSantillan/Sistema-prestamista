@@ -8,6 +8,7 @@ import ModalPago from './componentes/botonesDeAccion/ModalesBotones/ModalAgregar
 import ModalDirectorio from "./componentes/barraSuperior/ModalDirectorio"
 import BotonesDeAccion from './componentes/botonesDeAccion/BotonesDeAccion'
 import ModalFichaPrestamo from './componentes/botonesDeAccion/ModalesBotones/ModalFichaPrestamo'
+import PanoramaEstadisticas from './componentes/panoramaEstadisticas/PanoramaEstadisticas'
 
 export default function App() {
   // Guarda el préstamo a mostrar en la ficha técnica
@@ -87,7 +88,7 @@ export default function App() {
         isOpen={modalActivo === 'directorio'}
         tipoInicial={tipoDirectorio}
         onClose={() => setModalActivo(null)}
-        onVerFichaPrestamo={handleAbrirFichaPrestamo} // 👈 Conexión directa fijada
+        onVerFichaPrestamo={handleAbrirFichaPrestamo}
       />
 
       {/* 3. Modal de Ficha Técnica del Préstamo */}
@@ -98,6 +99,11 @@ export default function App() {
           setPrestamoFicha(null)
         }}
         prestamo={prestamoFicha}
+      />
+
+      {/* 4. Panorama Estadístico con handler directo */}
+      <PanoramaEstadisticas 
+        onAbrirDirectorioInversionistas={handleOpenDirectorioInversionistas}
       />
 
     </div>

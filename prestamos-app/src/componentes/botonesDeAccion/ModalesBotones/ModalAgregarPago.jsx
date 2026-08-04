@@ -31,9 +31,19 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
     esParcial: false
   })
 
-  // 1. Cargar lista de clientes al abrir el modal
+  // 1. Cargar lista de clientes al abrir el modal y resetear campos
   useEffect(() => {
     if (isOpen) {
+      setFormData({
+        cliente_id: '',
+        prestamo_id: '',
+        monto_pago: '',
+        metodo_pago: 'efectivo',
+        fecha_pago: new Date().toISOString().split('T')[0],
+        observaciones: ''
+      })
+      setErrorMsg('')
+
       async function loadClientes() {
         try {
           const { data, error } = await supabase
@@ -58,7 +68,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
     }
   }, [isOpen])
 
-  // 2. Cada vez que cambia el cliente_id, cargamos sus préstamos activos
+  // 2. Cargar préstamos activos al cambiar el cliente_id
   useEffect(() => {
     if (!formData.cliente_id || !isOpen) return
 
@@ -66,11 +76,11 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
       setFetchingPrestamos(true)
       try {
         const { data, error } = await supabase
-  .from('prestamos')
-  .select('*')
-  .eq('cliente_id', formData.cliente_id)
-  .eq('estado', 'activo') // 👈 Esto evita que se sigan registrando cobros sobre préstamos ya cancelados
-  .order('fecha_inicio', { ascending: false })
+          .from('prestamos')
+          .select('*')
+          .eq('cliente_id', formData.cliente_id)
+          .eq('estado', 'activo')
+          .order('fecha_inicio', { ascending: false })
 
         if (error) throw error
 
@@ -92,7 +102,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
     loadPrestamos()
   }, [formData.cliente_id, isOpen])
 
-  // 3. Calculamos cuotas y saldos al cambiar el préstamo seleccionado
+  // 3. Calcular cuotas y saldos al cambiar el préstamo seleccionado
   useEffect(() => {
     if (!formData.prestamo_id || prestamosCliente.length === 0) return
 
@@ -178,7 +188,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
   }
 
   // Guardar Pago y Verificar Finalización del Préstamo
- const handleSubmit = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
     setErrorMsg('')
@@ -207,7 +217,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
         monto_cobrado: monto,
         metodo_pago: formData.metodo_pago,
         fecha_pago: formData.fecha_pago,
-        observaciones: formData.observaciones
+        observaciones: formData.observaciones || null
       }
 
       const { error: errorPago } = await supabase.from('pagos').insert([payload])
@@ -228,8 +238,8 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
 
       const montoTotalPagar = Number(prestamoActual?.monto_total_pagar || prestamoActual?.monto_total || 0)
 
-      // 3. Si el acumulado real cubre el monto total a devolver, se pasa a 'finalizado'
-      if (totalAcumuladoDB >= (montoTotalPagar - 0.01)) {
+      // 3. Si el acumulado real cubre el monto total a devolver (tolerancia de centavos), pasa a 'finalizado'
+      if (totalAcumuladoDB >= (montoTotalPagar - 0.50)) {
         const { error: errorPrestamo } = await supabase
           .from('prestamos')
           .update({ estado: 'finalizado' })
@@ -301,7 +311,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
                 required
                 value={formData.cliente_id}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               >
                 {clientes.length === 0 ? (
                   <option value="">No hay clientes cargados</option>
@@ -325,7 +335,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
                 disabled={fetchingPrestamos || prestamosCliente.length === 0}
                 value={formData.prestamo_id}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] disabled:opacity-50"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] disabled:opacity-50"
               >
                 {fetchingPrestamos ? (
                   <option value="">Buscando préstamos...</option>
@@ -404,7 +414,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
                 name="metodo_pago"
                 value={formData.metodo_pago}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               >
                 <option value="efectivo">💵 Efectivo</option>
                 <option value="transferencia">🏦 Transferencia Bancaria</option>
@@ -425,7 +435,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
                 required
                 value={formData.fecha_pago}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               />
             </div>
 
@@ -439,7 +449,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
                 value={formData.observaciones}
                 onChange={handleChange}
                 placeholder="Ej. Saldo de Cuota 1 / Nro Op 1234"
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               />
             </div>
           </div>

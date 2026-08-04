@@ -4,6 +4,7 @@ import { supabase } from '../../../lib/supabaseClient'
 
 export default function ModalCliente({ isOpen, onClose, onSuccess }) {
   const [inversionistas, setInversionistas] = useState([])
+  const [provincias, setProvincias] = useState([])
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
 
@@ -11,42 +12,65 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
     nombre_completo: '',
     telefono: '',
     origen: 'propio',
-    inversionista_id: ''
+    inversionista_id: '',
+    provincia_id: ''
   })
 
-  // 1. Resetear el formulario al abrir el modal y cargar la lista de Inversionistas Activos
   useEffect(() => {
-    if (isOpen) {
-      setFormData({
-        nombre_completo: '',
-        telefono: '',
-        origen: 'propio',
-        inversionista_id: ''
-      })
-      setErrorMsg('')
+    if (!isOpen) return
 
-      async function fetchInversionistas() {
-        try {
-          // Traemos únicamente a los inversionistas con estado activo
-          const { data, error } = await supabase
-            .from('usuarios')
-            .select('id, nombre_completo, nombre')
-            .eq('activo', true)
-            .order('nombre_completo', { ascending: true })
+    setFormData({
+      nombre_completo: '',
+      telefono: '',
+      origen: 'propio',
+      inversionista_id: '',
+      provincia_id: ''
+    })
+    setErrorMsg('')
 
-          if (error) throw error
+    async function fetchInicial() {
+      try {
+        // 1. Cargar Provincias
+        const { data: provData } = await supabase
+          .from('provincias')
+          .select('*')
+          .order('nombre', { ascending: true })
 
-          setInversionistas(data || [])
-          if (data && data.length > 0) {
-            setFormData((prev) => ({ ...prev, inversionista_id: data[0].id }))
-          }
-        } catch (err) {
-          console.error('Error al cargar inversionistas:', err)
+        setProvincias(provData || [])
+        if (provData && provData.length > 0) {
+          setFormData((prev) => ({ ...prev, provincia_id: provData[0].id }))
         }
-      }
 
-      fetchInversionistas()
+        // 2. Cargar Inversionistas desde la tabla 'usuarios'
+        // Si usás una etiqueta específica en la columna 'rol', la consulta traerá los que correspondan o todos los activos
+        const { data: invData, error: errInv } = await supabase
+          .from('usuarios')
+          .select('id, nombre_completo, rol, activo')
+          .order('nombre_completo', { ascending: true })
+
+        if (errInv) {
+          console.error('Error al consultar la tabla usuarios:', errInv.message)
+        } else {
+          // Si guardás el rol como 'inversionista', podés filtrar por rol, o traer todos los usuarios cuyo 'activo' no sea false
+          const inversionistasValidos = (invData || []).filter((u) => {
+            const esActivo = u.activo !== false
+            const esInversor = u.rol ? u.rol.toLowerCase() === 'inversionista' : true
+            return esActivo && esInversor
+          })
+
+          setInversionistas(inversionistasValidos)
+
+          if (inversionistasValidos.length > 0) {
+            setFormData((prev) => ({ ...prev, inversionista_id: inversionistasValidos[0].id }))
+          }
+        }
+
+      } catch (err) {
+        console.error('Error al cargar datos iniciales:', err)
+      }
     }
+
+    fetchInicial()
   }, [isOpen])
 
   const handleChange = (e) => {
@@ -54,7 +78,6 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  // 2. Guardar Cliente en Supabase
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
@@ -73,12 +96,14 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
     }
 
     try {
-      const payload = {
-        nombre_completo: formData.nombre_completo.trim(),
-        telefono: formData.telefono.trim() || null,
-        inversionista_id: formData.origen === 'inversionista' ? formData.inversionista_id : null,
-        activo: true
-      }
+     const payload = {
+  nombre_completo: formData.nombre_completo.trim(),
+  telefono: formData.telefono.trim() || null,
+  // 🔴 Solo si eligió 'inversionista' enviamos el id, si no enviamos null explícito
+  inversionista_id: formData.origen === 'inversionista' && formData.inversionista_id ? formData.inversionista_id : null,
+  provincia_id: formData.provincia_id || null,
+  activo: true
+}
 
       const { error } = await supabase.from('clientes').insert([payload])
 
@@ -88,7 +113,7 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
       onClose()
     } catch (err) {
       console.error('Error al guardar cliente:', err)
-      setErrorMsg(err.message || 'No se pudo guardar el registro del cliente.')
+      setErrorMsg(err.message || 'No se pudo guardar el cliente.')
     } finally {
       setLoading(false)
     }
@@ -100,7 +125,7 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
       <div className="w-full max-w-xl rounded-3xl bg-cream p-6 sm:p-8 shadow-2xl border border-line">
         
-        {/* Cabecera del Modal */}
+        {/* Cabecera */}
         <div className="flex items-start justify-between mb-6">
           <div>
             <span className="text-[11px] font-bold tracking-widest uppercase text-[#0d6b63]">
@@ -122,7 +147,6 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
         {/* Formulario */}
         <form onSubmit={handleSubmit} className="space-y-4">
           
-          {/* Tipo de movimiento (Fijo en Cliente) */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
               Tipo de movimiento
@@ -136,7 +160,6 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
             </select>
           </div>
 
-          {/* Fila 1: Nombre completo y Teléfono */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -149,7 +172,7 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
                 value={formData.nombre_completo}
                 onChange={handleChange}
                 placeholder="Ej. María González"
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               />
             </div>
 
@@ -163,13 +186,13 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
                 value={formData.telefono}
                 onChange={handleChange}
                 placeholder="Ej. 381 9876543"
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               />
             </div>
           </div>
 
-          {/* Fila 2: Origen del cliente */}
-          <div className="grid grid-cols-1 gap-4">
+          {/* Fila: Origen del cliente y Provincia */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 Origen del cliente
@@ -178,15 +201,36 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
                 name="origen"
                 value={formData.origen}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               >
                 <option value="propio">Propio (Administrador)</option>
                 <option value="inversionista">Inversionista asignado</option>
               </select>
             </div>
+
+            {provincias.length > 0 && (
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Provincia
+                </label>
+                <select
+                  name="provincia_id"
+                  value={formData.provincia_id}
+                  onChange={handleChange}
+                  className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                >
+                  <option value="">Sin especificar</option>
+                  {provincias.map((prov) => (
+                    <option key={prov.id} value={prov.id}>
+                      {prov.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
-          {/* Selector condicional: Inversionista Asignado */}
+          {/* Inversionista Asignado (Solo si origen === 'inversionista') */}
           {formData.origen === 'inversionista' && (
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -197,14 +241,14 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
                 required={formData.origen === 'inversionista'}
                 value={formData.inversionista_id}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               >
                 {inversionistas.length === 0 ? (
-                  <option value="">No hay inversionistas activos registrados</option>
+                  <option value="">No hay inversionistas registrados en la tabla usuarios</option>
                 ) : (
                   inversionistas.map((inv) => (
                     <option key={inv.id} value={inv.id}>
-                      {inv.nombre_completo || inv.nombre}
+                      {inv.nombre_completo}
                     </option>
                   ))
                 )}
@@ -218,7 +262,6 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
             </p>
           )}
 
-          {/* Botones de acción */}
           <div className="flex justify-end items-center gap-3 pt-4">
             <button
               type="button"

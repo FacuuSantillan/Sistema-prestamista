@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { X, Search, User, Briefcase, Receipt, CreditCard, ChevronRight, Power, Eye } from 'lucide-react'
+import { X, Search, User, Briefcase, Receipt, CreditCard, ChevronRight, Power, Eye, DollarSign, TrendingUp, Wallet } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 
 export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'clientes', onVerFichaPrestamo }) {
@@ -38,7 +38,7 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
     }
   }, [isOpen, tipoInicial])
 
-  // 2. Cargar TODOS los perfiles (activos e inactivos) para verlos en la lista del directorio
+  // 2. Cargar TODOS los perfiles para la lista del directorio
   useEffect(() => {
     if (!isOpen) return
     let isMounted = true
@@ -48,15 +48,9 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
 
       try {
         const tabla = tipo === 'clientes' ? 'clientes' : 'usuarios'
-        
-        // 👈 Traemos todos los registros para mantener la visibilidad en el directorio
         let query = supabase.from(tabla).select('*')
 
-        if (tipo === 'clientes') {
-          query = query.order('nombre_completo', { ascending: true })
-        } else {
-          query = query.order('nombre_completo', { ascending: true })
-        }
+        query = query.order('nombre_completo', { ascending: true })
 
         if (busqueda.trim() !== '') {
           if (tipo === 'clientes') {
@@ -106,15 +100,19 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
 
     try {
       if (tipoActual === 'clientes') {
-        if (item.inversionista_id) {
-          const { data: invData } = await supabase
+        // Verificar si existe un ID de inversionista en el cliente
+        const idInversionista = item.inversionista_id || item.usuario_id
+
+        if (idInversionista) {
+          const { data: invData, error: errInv } = await supabase
             .from('usuarios')
-            .select('nombre_completo, nombre')
-            .eq('id', item.inversionista_id)
+            .select('id, nombre_completo')
+            .eq('id', idInversionista)
             .maybeSingle()
 
-          if (invData) {
-            setReferidoInfo(invData.nombre_completo || invData.nombre)
+          if (!errInv && invData) {
+            const nombreMostrar = invData.nombre_completo || invData.nombre
+            setReferidoInfo(nombreMostrar ? `Inversionista (${nombreMostrar})` : 'Inversionista asignado')
           } else {
             setReferidoInfo('Propio (Administrador)')
           }
@@ -122,6 +120,7 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
           setReferidoInfo('Propio (Administrador)')
         }
 
+        // Cargar Préstamos del cliente
         const { data: prestamosData } = await supabase
           .from('prestamos')
           .select('*')
@@ -130,6 +129,7 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
 
         setPrestamos(prestamosData || [])
 
+        // Cargar Pagos del cliente
         const { data: pagosData } = await supabase
           .from('pagos')
           .select('*')
@@ -139,6 +139,7 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
         setPagos(pagosData || [])
 
       } else {
+        // VISTA INVERSIONISTA
         let { data: prestamosData, error: errP } = await supabase
           .from('prestamos')
           .select('*')
@@ -171,12 +172,13 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
       }
     } catch (err) {
       console.error('Error al cargar detalle del perfil:', err)
+      setReferidoInfo('Propio (Administrador)')
     } finally {
       setFetchingDetalle(false)
     }
   }
 
-  // ACCIÓN: Alternar Habilitar / Deshabilitar (Guarda el estado real en DB)
+  // ACCIÓN: Alternar Habilitar / Deshabilitar
   const handleToggleEstado = async () => {
     if (!itemSeleccionado) return
     setActionLoading(true)
@@ -194,11 +196,10 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
       if (error) throw error
 
       if (!data || data.length === 0) {
-        alert('No se pudo actualizar el registro en Supabase. Verificá los permisos RLS en Supabase.')
+        alert('No se pudo actualizar el registro en Supabase. Verificá los permisos RLS.')
         return
       }
 
-      // 👈 Se actualiza el objeto en el estado local sin borrarlo de la lista
       const itemActualizado = { ...itemSeleccionado, activo: nuevoEstado }
       setItemSeleccionado(itemActualizado)
       setLista((prev) => prev.map((e) => (e.id === itemSeleccionado.id ? itemActualizado : e)))
@@ -210,36 +211,17 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
     }
   }
 
+  // --- CÁLCULOS FINANCIEROS PARA EL INVERSIONISTA ---
+  const totalCapitalInvertido = prestamos.reduce((acc, p) => acc + Number(p.monto_capital || 0), 0)
+  const totalRetornoEsperado = prestamos.reduce((acc, p) => acc + Number(p.monto_total_pagar || p.monto_total || 0), 0)
+  const totalInteresesGanados = Math.max(0, totalRetornoEsperado - totalCapitalInvertido)
+
   const formatearFecha = (fechaRaw) => {
     if (!fechaRaw) return ''
     const fecha = fechaRaw.split('T')[0]
     const [year, month, day] = fecha.split('-')
     return `${day}/${month}/${year}`
   }
-
-  const renderBadgeEstadoPrestamo = (estado) => {
-  if (estado === 'finalizado') {
-    return (
-      <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-        ✓ COBRADO
-      </span>
-    )
-  }
-
-  if (estado === 'activo') {
-    return (
-      <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-        ACTIVO
-      </span>
-    )
-  }
-
-  return (
-    <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
-      {estado}
-    </span>
-  )
-}
 
   if (!isOpen) return null
 
@@ -375,7 +357,7 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
                     <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 mt-2.5 font-medium">
                       {tipo === 'clientes' && (
                         <span className="flex items-center gap-1 bg-[#0d6b63]/10 text-[#0d6b63] font-bold px-2.5 py-1 rounded-xl">
-                          👤 Origen: {referidoInfo || 'Cargando...'}
+                          Origen: {referidoInfo || 'Cargando...'}
                         </span>
                       )}
 
@@ -404,6 +386,56 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
                   </div>
                 </div>
 
+                {/* TARJETAS DE RESUMEN FINANCIERO (SOLO INVERSIONISTAS) */}
+                {tipo === 'inversionistas' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* 1. Capital Invertido */}
+                    <div className="p-4 rounded-2xl bg-white border border-line flex flex-col justify-between shadow-xs">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                          CAPITAL INVERTIDO
+                        </span>
+                        <div className="p-2 rounded-xl bg-blue-50 text-blue-700">
+                          <DollarSign className="w-4 h-4" />
+                        </div>
+                      </div>
+                      <p className="text-xl font-bold text-slate-900">
+                        ${totalCapitalInvertido.toLocaleString('es-AR')}
+                      </p>
+                    </div>
+
+                    {/* 2. Ingreso por Intereses */}
+                    <div className="p-4 rounded-2xl bg-white border border-line flex flex-col justify-between shadow-xs">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                          GANANCIA INTERESES
+                        </span>
+                        <div className="p-2 rounded-xl bg-emerald-50 text-emerald-700">
+                          <TrendingUp className="w-4 h-4" />
+                        </div>
+                      </div>
+                      <p className="text-xl font-bold text-emerald-700">
+                        +${totalInteresesGanados.toLocaleString('es-AR')}
+                      </p>
+                    </div>
+
+                    {/* 3. Retorno Total Esperado */}
+                    <div className="p-4 rounded-2xl bg-white border border-line flex flex-col justify-between shadow-xs">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                          TOTAL RETORNO
+                        </span>
+                        <div className="p-2 rounded-xl bg-[#0d6b63]/10 text-[#0d6b63]">
+                          <Wallet className="w-4 h-4" />
+                        </div>
+                      </div>
+                      <p className="text-xl font-bold text-[#0d6b63]">
+                        ${totalRetornoEsperado.toLocaleString('es-AR')}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* VISTA CLIENTE */}
                 {tipo === 'clientes' && (
                   <>
@@ -430,9 +462,9 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
                               <div className="flex items-center gap-3">
                                 <div className="text-right">
                                   <span className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-full ${
-                                    p.estado === 'activo' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                                    p.estado === 'finalizado' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
                                   }`}>
-                                    {p.estado}
+                                    {p.estado === 'finalizado' ? '✓ COBRADO' : p.estado}
                                   </span>
                                   <span className="text-xs text-slate-500 font-bold block mt-1">
                                     Total a devolver: ${Number(p.monto_total_pagar || 0).toLocaleString('es-AR')}
@@ -535,9 +567,9 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
                                     Retorno Esperado: ${Number(p.monto_total_pagar || 0).toLocaleString('es-AR')}
                                   </span>
                                   <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full inline-block mt-1 ${
-                                    p.estado === 'activo' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                                    p.estado === 'finalizado' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
                                   }`}>
-                                    {p.estado}
+                                    {p.estado === 'finalizado' ? '✓ COBRADO' : p.estado}
                                   </span>
                                 </div>
                                 {onVerFichaPrestamo && (

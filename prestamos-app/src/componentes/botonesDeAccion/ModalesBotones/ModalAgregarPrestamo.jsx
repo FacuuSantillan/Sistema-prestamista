@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { X, Calculator } from 'lucide-react'
 import { supabase } from '../../../lib/supabaseClient'
 
-export default function ModalPrestamo({ isOpen, onClose, onSuccess }) {
+export default function ModalAgregarPrestamo({ isOpen, onClose, onSuccess }) {
   const [provincias, setProvincias] = useState([])
   const [clientes, setClientes] = useState([])
   const [inversionistas, setInversionistas] = useState([])
@@ -24,55 +24,78 @@ export default function ModalPrestamo({ isOpen, onClose, onSuccess }) {
     fecha_inicio: new Date().toISOString().split('T')[0]
   })
 
-  // Cargar datos relacionales desde Supabase
   useEffect(() => {
-    if (isOpen) {
-      async function loadData() {
-        try {
-          const [resProvs, resClis, resInvs, resPlanes] = await Promise.all([
-            supabase.from('provincias').select('*').order('nombre', { ascending: true }),
-            supabase.from('clientes').select('id, nombre_completo, provincia_id').order('nombre_completo', { ascending: true }),
-            supabase.from('usuarios').select('id, nombre_completo, provincia_id').order('nombre_completo', { ascending: true }),
-            supabase.from('planes_prestamo').select('*').order('monto', { ascending: true })
-          ])
+    if (!isOpen) return
 
-          if (resProvs.data) setProvincias(resProvs.data)
-          if (resInvs.data) setInversionistas(resInvs.data)
+    async function cargarDatosIniciales() {
+      try {
+        setErrorMsg('')
 
-          // Auto-seleccionar primer plan si existe
-          if (resPlanes.data && resPlanes.data.length > 0) {
-            setPlanes(resPlanes.data)
-            const primerPlan = resPlanes.data[0]
-            setPlanSeleccionado(primerPlan.id)
-            setFormData((prev) => ({
-              ...prev,
-              monto_prestado: primerPlan.monto.toString(),
-              tasa_interes: primerPlan.tasa_interes.toString()
-            }))
-          } else {
-            setPlanSeleccionado('custom')
-          }
+        // 1. Cargar Opciones / Planes de Préstamo de forma flexible
+        const { data: opciones, error: errOpciones } = await supabase
+          .from('planes_prestamo')
+          .select('*')
 
-          if (resClis.data && resClis.data.length > 0) {
-            setClientes(resClis.data)
-            setFormData((prev) => ({
-              ...prev,
-              cliente_id: resClis.data[0].id,
-              provincia_id: resClis.data[0].provincia_id || (resProvs.data?.[0]?.id || '')
-            }))
-          } else if (resProvs.data && resProvs.data.length > 0) {
-            setFormData((prev) => ({ ...prev, provincia_id: resProvs.data[0].id }))
-          }
-        } catch (err) {
-          console.error('Error al cargar datos del modal préstamo:', err)
+        if (errOpciones) {
+          console.warn('Error al obtener planes_prestamo:', errOpciones.message)
         }
+
+        const planesObtenidos = opciones || []
+        setPlanes(planesObtenidos)
+
+        // Asignar primer plan si existe
+        if (planesObtenidos.length > 0) {
+          const primerPlan = planesObtenidos[0]
+          setPlanSeleccionado(primerPlan.id)
+          setFormData((prev) => ({
+            ...prev,
+            monto_prestado: (primerPlan.monto_capital || primerPlan.monto || '').toString(),
+            tasa_interes: (primerPlan.tasa_interes || '').toString()
+          }))
+        } else {
+          setPlanSeleccionado('custom')
+        }
+
+        // 2. Cargar Clientes (Solo Activos o sin definir)
+        const { data: clientesData, error: errClientes } = await supabase
+          .from('clientes')
+          .select('*')
+          .order('nombre_completo', { ascending: true })
+
+        if (!errClientes && clientesData) {
+          const clientesActivos = clientesData.filter((c) => c.activo !== false)
+          setClientes(clientesActivos)
+
+          if (clientesActivos.length > 0) {
+            setFormData((prev) => ({
+              ...prev,
+              cliente_id: clientesActivos[0].id,
+              provincia_id: clientesActivos[0].provincia_id || prev.provincia_id
+            }))
+          }
+        }
+
+        // 3. Cargar Inversionistas (Solo Activos o sin definir)
+        const { data: inversionistasData, error: errInversor } = await supabase
+          .from('usuarios')
+          .select('*')
+          .order('nombre_completo', { ascending: true })
+
+        if (!errInversor && inversionistasData) {
+          const inversionistasActivos = inversionistasData.filter((i) => i.activo !== false)
+          setInversionistas(inversionistasActivos)
+        }
+
+      } catch (err) {
+        console.error('Error al cargar datos para el nuevo préstamo:', err)
       }
-      loadData()
     }
+
+    cargarDatosIniciales()
   }, [isOpen])
 
   // Manejar el cambio de Opción de préstamo
-  const handlePlanChange = (e) => {
+ const handlePlanChange = (e) => {
     const value = e.target.value
     setPlanSeleccionado(value)
 
@@ -87,10 +110,11 @@ export default function ModalPrestamo({ isOpen, onClose, onSuccess }) {
 
     const planEncontrado = planes.find((p) => p.id === value)
     if (planEncontrado) {
+      const valorMonto = planEncontrado.monto_capital || planEncontrado.monto || ''
       setFormData((prev) => ({
         ...prev,
-        monto_prestado: planEncontrado.monto.toString(),
-        tasa_interes: planEncontrado.tasa_interes.toString()
+        monto_prestado: valorMonto.toString(),
+        tasa_interes: (planEncontrado.tasa_interes || '').toString()
       }))
     }
   }
@@ -126,7 +150,12 @@ export default function ModalPrestamo({ isOpen, onClose, onSuccess }) {
     setLoading(true)
     setErrorMsg('')
 
-    // Validación previa del monto
+    if (!formData.cliente_id) {
+      setErrorMsg('Debes seleccionar un cliente.')
+      setLoading(false)
+      return
+    }
+
     if (isNaN(monto) || monto <= 0) {
       setErrorMsg('Por favor, ingresá un monto de préstamo válido.')
       setLoading(false)
@@ -134,17 +163,14 @@ export default function ModalPrestamo({ isOpen, onClose, onSuccess }) {
     }
 
     try {
-      // 1. Buscamos el inversionista seleccionado
       const inversorSeleccionado = inversionistas.find(
         (inv) => inv.id === formData.inversionista_id
       )
 
-      // 2. Buscamos el cliente seleccionado
       const clienteSeleccionado = clientes.find(
         (c) => c.id === formData.cliente_id
       )
 
-      // 3. Heredamos la provincia del inversor o la del cliente si es capital propio
       const provinciaIdHeredada =
         inversorSeleccionado?.provincia_id || clienteSeleccionado?.provincia_id || formData.provincia_id || null
 
@@ -152,12 +178,12 @@ export default function ModalPrestamo({ isOpen, onClose, onSuccess }) {
         cliente_id: formData.cliente_id,
         inversionista_id: formData.inversionista_id || null,
         provincia_id: provinciaIdHeredada,
-        monto_capital: monto,                             // 👈 Mapeo correcto de monto_prestado
-        tasa_interes: tasa,                           // 👈 Agregamos la tasa de interés requerida
-        monto_total_pagar: montoTotalDevolver,           // 👈 Mapeo correcto del total calculado
+        monto_capital: monto,
+        tasa_interes: tasa,
+        monto_total_pagar: montoTotalDevolver,
         monto_cuota: valorCuota,
-        cantidad_cuotas: cuotas,                         // 👈 Mapeo correcto de plazo_cuotas
-        frecuencia: formData.frecuencia_pago || 'mensual',// 👈 Mapeo correcto de frecuencia_pago
+        cantidad_cuotas: cuotas,
+        frecuencia: formData.frecuencia_pago || 'mensual',
         fecha_inicio: formData.fecha_inicio,
         estado: 'activo'
       }
@@ -205,28 +231,32 @@ export default function ModalPrestamo({ isOpen, onClose, onSuccess }) {
         <form onSubmit={handleSubmit} className="space-y-4">
           
           {/* 1. Selector de Opciones / Planes Predefinidos */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-[#0d6b63] mb-1">
-              Opción de préstamo
-            </label>
-            <select
-              value={planSeleccionado}
-              onChange={handlePlanChange}
-              required
-              className="w-full rounded-2xl border border-[#0d6b63]/40 bg-white px-4 py-3 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20"
-            >
-              {planes.length === 0 ? (
-                <option value="custom">No hay opciones guardadas (Personalizado)</option>
-              ) : (
-                planes.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nombre} — Monto: ${Number(p.monto).toLocaleString('es-AR')} | Tasa: {p.tasa_interes}%
-                  </option>
-                ))
-              )}
-              <option value="custom">Personalizado (Ingresar monto e interés a mano)</option>
-            </select>
-          </div>
+        <div>
+  <label className="block text-xs font-bold uppercase tracking-wider text-[#0d6b63] mb-1">
+    Opción de préstamo
+  </label>
+  <select
+    value={planSeleccionado}
+    onChange={handlePlanChange}
+    required
+    className="w-full rounded-2xl border border-[#0d6b63]/40 bg-white px-4 py-3 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20"
+  >
+    {planes.length === 0 ? (
+      <option value="custom">No hay opciones guardadas (Personalizado)</option>
+    ) : (
+      planes.map((p) => {
+        const titulo = p.nombre || p.nombre_opcion || 'Opción sin nombre'
+        const valorMonto = p.monto_capital || p.monto || 0
+        return (
+          <option key={p.id} value={p.id}>
+            {titulo} — Monto: ${Number(valorMonto).toLocaleString('es-AR')} | Tasa: {p.tasa_interes}%
+          </option>
+        )
+      })
+    )}
+    <option value="custom">Personalizado (Ingresar monto e interés a mano)</option>
+  </select>
+</div>
 
           {/* Si eligió Personalizado, mostramos los inputs de Monto e Interés */}
           {planSeleccionado === 'custom' && (
@@ -281,7 +311,7 @@ export default function ModalPrestamo({ isOpen, onClose, onSuccess }) {
                 className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               >
                 {clientes.length === 0 ? (
-                  <option value="">No hay clientes registrados</option>
+                  <option value="">No hay clientes activos registrados</option>
                 ) : (
                   clientes.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -298,14 +328,14 @@ export default function ModalPrestamo({ isOpen, onClose, onSuccess }) {
               </label>
               <select
                 name="inversionista_id"
-                value={formData.inversionista_id}
+                value={formData.inversionista_id || ''}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               >
                 <option value="">Propio (Administrador)</option>
                 {inversionistas.map((inv) => (
                   <option key={inv.id} value={inv.id}>
-                    {inv.nombre_completo}
+                    {inv.nombre_completo || inv.nombre}
                   </option>
                 ))}
               </select>
