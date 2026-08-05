@@ -8,12 +8,12 @@ import {
   Users,
   ChevronRight
 } from 'lucide-react'
-import { supabase } from '../../lib/supabaseClient' // Ajustá la ruta según tu estructura
+import { supabase } from '../../lib/supabaseClient'
 
 export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
   const [loading, setLoading] = useState(true)
   const [metricas, setMetricas] = useState({
-    capitalTotalDisponible: 0, // Suma de capital_disponible de todos los inversionistas
+    capitalTotalDisponible: 0, // Suma de capital_disponible SOLO de inversionistas HABILITADOS
     interesGenerado: 0,        // Ganancia total por intereses
     totalCobrado: 0,           // Dinero ingresado por pagos
     balancePendiente: 0,       // Saldo restante por cobrar
@@ -24,20 +24,22 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
   const cargarMetricas = async () => {
     setLoading(true)
     try {
-      // 1. Obtener inversionistas/usuarios activos y sumar su capital disponible
+      // 1. Obtener solo usuarios/inversionistas ACTIVOS (activo = true)
       const { data: inversionistas, error: errInv } = await supabase
         .from('usuarios')
-        .select('id, capital_disponible, activo, rol')
+        .select('id, capital_disponible, activo')
+        .eq('activo', true) // 👈 Filtro clave: Excluye deshabilitados
 
-      if (errInv) console.warn('Aviso al cargar usuarios:', errInv.message)
+      if (errInv) console.warn('Aviso al cargar usuarios activos:', errInv.message)
 
-      const listaInversores = (inversionistas || []).filter((u) => u.activo !== false)
+      const listaInversoresHabilitados = inversionistas || []
 
-      const capitalTotalDisponible = listaInversores.reduce(
+      // Sumar capital disponible solo de la red activa
+      const capitalTotalDisponible = listaInversoresHabilitados.reduce(
         (acc, inv) => acc + Number(inv.capital_disponible || 0), 0
       )
 
-      const inversoresActivos = listaInversores.length
+      const inversoresActivos = listaInversoresHabilitados.length
 
       // 2. Obtener todos los préstamos
       const { data: prestamos, error: errP } = await supabase
@@ -79,27 +81,15 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
     }
   }
 
-  // Carga inicial y suscripción a cambios en tiempo real (Supabase Realtime)
+  // Carga inicial y suscripción a cambios en tiempo real
   useEffect(() => {
     cargarMetricas()
 
     const canalRealtime = supabase
       .channel('schema-panorama-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'prestamos' },
-        () => cargarMetricas()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'pagos' },
-        () => cargarMetricas()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'usuarios' },
-        () => cargarMetricas()
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'prestamos' }, () => cargarMetricas())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pagos' }, () => cargarMetricas())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, () => cargarMetricas())
       .subscribe()
 
     return () => {
@@ -110,7 +100,7 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
   return (
     <section className="w-[95%] mx-auto space-y-4 my-6">
       
-      {/* Cabecera de la Sección */}
+      {/* Cabecera */}
       <div className="flex items-center justify-between">
         <div>
           <span className="text-[11px] font-bold tracking-widest uppercase text-[#0d6b63]">
@@ -135,11 +125,11 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
       {/* GRILLA PRINCIPAL DE MÉTRICAS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 
-        {/* 1. Capital Total Disponible */}
+        {/* 1. Capital Total Disponible (SOLO HABILITADOS) */}
         <div className="p-5 rounded-3xl bg-white border border-line shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
           <div className="flex items-center justify-between mb-3">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-              CAPITAL TOTAL DISPONIBLE
+              CAPITAL TOTAL INVERTIDO
             </span>
             <div className="p-2.5 rounded-2xl bg-slate-100 text-slate-700">
               <DollarSign className="w-4 h-4" />
@@ -150,7 +140,7 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
               ${metricas.capitalTotalDisponible.toLocaleString('es-AR')}
             </p>
             <span className="text-[11px] font-medium text-slate-400 mt-1 block">
-              Suma de bolsas de inversionistas
+              Suma de inversionistas habilitados
             </span>
           </div>
         </div>
@@ -217,7 +207,7 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
 
       </div>
 
-      {/* FILA SECUNDARIA: Inversores Activos Accesibles */}
+      {/* FILA SECUNDARIA: Inversores Activos Habilitados */}
       <div className="pt-1">
         <div 
           onClick={onAbrirDirectorioInversionistas}
@@ -229,13 +219,13 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
             </div>
             <div>
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                INVERSORES ACTIVOS
+                INVERSORES ACTIVOS Y HABILITADOS
               </span>
               <p className="text-2xl font-bold text-slate-900 mt-0.5">
-                {metricas.inversoresActivos} {metricas.inversoresActivos === 1 ? 'Inversor' : 'Inversores'}
+                {metricas.inversoresActivos} {metricas.inversoresActivos === 1 ? 'Inversor habilitado' : 'Inversores habilitados'}
               </p>
               <span className="text-xs text-slate-400 block mt-0.5">
-                Hacé clic aquí para ver perfiles, capitales asignados e historial
+                Hacé clic para gestionar perfiles, altas y deshabilitaciones
               </span>
             </div>
           </div>

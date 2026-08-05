@@ -9,6 +9,7 @@ import ModalDirectorio from "./componentes/barraSuperior/ModalDirectorio"
 import BotonesDeAccion from './componentes/botonesDeAccion/BotonesDeAccion'
 import ModalFichaPrestamo from './componentes/botonesDeAccion/ModalesBotones/ModalFichaPrestamo'
 import PanoramaEstadisticas from './componentes/panoramaEstadisticas/PanoramaEstadisticas'
+import RegistrosRecientes from './componentes/Registros/RegistrosRecientes'
 
 export default function App() {
   // Guarda el préstamo a mostrar en la ficha técnica
@@ -18,11 +19,14 @@ export default function App() {
   // Guarda la pestaña inicial del directorio: 'clientes' o 'inversionistas'
   const [tipoDirectorio, setTipoDirectorio] = useState('clientes')
 
+  // Guarda el ID específico del perfil (cliente o inversionista) a seleccionar al abrir el directorio
+  const [perfilSeleccionadoId, setPerfilSeleccionadoId] = useState(null)
+
+  const [modalFichaAbierta, setModalFichaAbierta] = useState(false)
+
   const handleRefreshData = () => {
     console.log('Registro creado con éxito. Recargando datos...')
   }
-
-  const [modalFichaAbierta, setModalFichaAbierta] = useState(false)
 
   // Función para abrir la ficha técnica
   const handleAbrirFichaPrestamo = (prestamo) => {
@@ -30,19 +34,21 @@ export default function App() {
     setModalFichaAbierta(true)
   }
 
-  // Funciones para abrir el directorio en la pestaña deseada
+  // Funciones para abrir el directorio desde la barra superior o panoramas generales
   const handleOpenDirectorioClientes = () => {
     setTipoDirectorio('clientes')
+    setPerfilSeleccionadoId(null)
     setModalActivo('directorio')
   }
 
   const handleOpenDirectorioInversionistas = () => {
     setTipoDirectorio('inversionistas')
+    setPerfilSeleccionadoId(null)
     setModalActivo('directorio')
   }
 
   return (
-    <div className="min-h-screen bg-paper">
+    <div className="min-h-screen bg-paper pb-12">
 
       {/* 1. Pasamos los handlers a BarraSuperior */}
       <BarraSuperior 
@@ -83,11 +89,15 @@ export default function App() {
         onSuccess={handleRefreshData}
       />
 
-      {/* 2. Modal de Directorio (Clientes / Inversionistas) */}
+      {/* 2. Modal de Directorio (Clientes / Inversionistas) con selección específica */}
       <ModalDirectorio
         isOpen={modalActivo === 'directorio'}
         tipoInicial={tipoDirectorio}
-        onClose={() => setModalActivo(null)}
+        itemInicialId={perfilSeleccionadoId}
+        onClose={() => {
+          setModalActivo(null)
+          setPerfilSeleccionadoId(null)
+        }}
         onVerFichaPrestamo={handleAbrirFichaPrestamo}
       />
 
@@ -101,9 +111,24 @@ export default function App() {
         prestamo={prestamoFicha}
       />
 
-      {/* 4. Panorama Estadístico con handler directo */}
+      {/* 4. Panorama Estadístico */}
       <PanoramaEstadisticas 
         onAbrirDirectorioInversionistas={handleOpenDirectorioInversionistas}
+      />
+
+      {/* 5. Registros Recientes con captura de ID de perfil */}
+      <RegistrosRecientes 
+        onVerFichaPrestamo={handleAbrirFichaPrestamo}
+        onAbrirCliente={(cliente) => {
+          setTipoDirectorio('clientes')
+          setPerfilSeleccionadoId(cliente?.id || null)
+          setModalActivo('directorio')
+        }}
+        onAbrirInversionista={(inversionista) => {
+          setTipoDirectorio('inversionistas')
+          setPerfilSeleccionadoId(inversionista?.id || null)
+          setModalActivo('directorio')
+        }}
       />
 
     </div>

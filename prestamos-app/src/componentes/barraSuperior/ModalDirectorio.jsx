@@ -2,7 +2,13 @@ import React, { useState, useEffect } from 'react'
 import { X, Search, User, Briefcase, Receipt, CreditCard, ChevronRight, Power, Eye, DollarSign, TrendingUp, Wallet } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 
-export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'clientes', onVerFichaPrestamo }) {
+export default function ModalDirectorio({ 
+  isOpen, 
+  onClose, 
+  tipoInicial = 'clientes', 
+  itemInicialId = null, // 👈 Se agrega la prop para recibir el ID del perfil seleccionado
+  onVerFichaPrestamo 
+}) {
   const [tipo, setTipo] = useState(tipoInicial) // 'clientes' o 'inversionistas'
   const [busqueda, setBusqueda] = useState('')
   const [lista, setLista] = useState([])
@@ -17,7 +23,7 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
   const [fetchingDetalle, setFetchingDetalle] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
 
-  // 1. Resetear estados al abrir/cerrar modal
+  // 1. Resetear/Establecer estados al abrir/cerrar modal o cambiar tipoInicial
   useEffect(() => {
     if (isOpen) {
       setTipo(tipoInicial)
@@ -38,11 +44,10 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
     }
   }, [isOpen, tipoInicial])
 
-  // 2. Cargar TODOS los perfiles para la lista del directorio
+  // 2. Cargar TODOS los perfiles para la lista del directorio y seleccionar el perfil solicitado
   useEffect(() => {
     if (!isOpen) return
     let isMounted = true
-    
 
     async function fetchData() {
       setLoading(true)
@@ -65,9 +70,17 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
         if (error) throw error
 
         if (isMounted) {
-          setLista(data || [])
-          if (data && data.length > 0) {
-            cargarDetallePerfil(data[0], tipo)
+          const listaData = data || []
+          setLista(listaData)
+
+          if (listaData.length > 0) {
+            // 🔴 Si se pasó itemInicialId, busca a la persona concreta; de lo contrario, toma la primera.
+            const itemEspecifico = itemInicialId 
+              ? listaData.find((el) => el.id === itemInicialId)
+              : null
+
+            const perfilASeleccionar = itemEspecifico || listaData[0]
+            cargarDetallePerfil(perfilASeleccionar, tipo)
           } else {
             setItemSeleccionado(null)
             setReferidoInfo(null)
@@ -87,7 +100,7 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
     fetchData()
 
     return () => { isMounted = false }
-  }, [tipo, busqueda, isOpen])
+  }, [tipo, busqueda, isOpen, itemInicialId])
 
   // 3. Cargar detalle del perfil seleccionado
   const cargarDetallePerfil = async (item, tipoActual) => {
@@ -140,7 +153,7 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
         setPagos(pagosData || [])
 
       } else {
-        // VISTA INVERSIONISTA (Búsqueda corregida para evitar el error 400)
+        // VISTA INVERSIONISTA
         const { data: prestamosData, error: errP } = await supabase
           .from('prestamos')
           .select('*')
@@ -207,20 +220,20 @@ export default function ModalDirectorio({ isOpen, onClose, tipoInicial = 'client
   }
 
   // --- CÁLCULOS FINANCIEROS PARA EL INVERSIONISTA ---
-const totalCapitalInvertido = Number(itemSeleccionado?.capital_disponible || 0)
+  const totalCapitalInvertido = Number(itemSeleccionado?.capital_disponible || 0)
 
-// 2. Retorno esperado calculado desde la suma de todos los préstamos vinculados
-const totalRetornoEsperado = prestamos.reduce(
-  (acc, p) => acc + Number(p.monto_total_pagar || p.monto_total || 0),
-  0
-)
+  // Retorno esperado calculado desde la suma de todos los préstamos vinculados
+  const totalRetornoEsperado = prestamos.reduce(
+    (acc, p) => acc + Number(p.monto_total_pagar || p.monto_total || 0),
+    0
+  )
 
-// 3. Intereses ganados (Diferencia entre retorno esperado y el capital de los préstamos)
-const totalCapitalColocado = prestamos.reduce(
-  (acc, p) => acc + Number(p.monto_capital || p.monto || 0),
-  0
-)
-const totalInteresesGanados = Math.max(0, totalRetornoEsperado - totalCapitalColocado)
+  // Intereses ganados (Diferencia entre retorno esperado y el capital de los préstamos)
+  const totalCapitalColocado = prestamos.reduce(
+    (acc, p) => acc + Number(p.monto_capital || p.monto || 0),
+    0
+  )
+  const totalInteresesGanados = Math.max(0, totalRetornoEsperado - totalCapitalColocado)
 
   const formatearFecha = (fechaRaw) => {
     if (!fechaRaw) return ''
