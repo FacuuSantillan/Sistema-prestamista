@@ -6,12 +6,25 @@ import {
   Clock, 
   RefreshCw,
   Users,
-  ChevronRight
+  ChevronRight,
+  Calendar
 } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 
+const MESES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+]
+
 export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
   const [loading, setLoading] = useState(true)
+  const fechaActual = new Date()
+
+  // Estados de Filtro de Período
+  const [filtroPeriodo, setFiltroPeriodo] = useState('historico') // 'historico' | 'mes'
+  const [mesSeleccionado, setMesSeleccionado] = useState(fechaActual.getMonth() + 1) // 1 - 12
+  const [anioSeleccionado, setAnioSeleccionado] = useState(fechaActual.getFullYear())
+
   const [metricas, setMetricas] = useState({
     capitalTotalDisponible: 0, // Suma de capital_disponible SOLO de inversionistas HABILITADOS
     interesGenerado: 0,        // Ganancia total por intereses
@@ -28,17 +41,16 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
       const { data: inversionistas, error: errInv } = await supabase
         .from('usuarios')
         .select('id, capital_disponible, activo')
-        .eq('activo', true) // 👈 Filtro clave: Excluye deshabilitados
+        .eq('activo', true)
 
       if (errInv) console.warn('Aviso al cargar usuarios activos:', errInv.message)
 
       const listaInversoresHabilitados = inversionistas || []
 
-      // Sumar capital disponible solo de la red activa
+      // Capital total disponible siempre representa la caja activa actual
       const capitalTotalDisponible = listaInversoresHabilitados.reduce(
         (acc, inv) => acc + Number(inv.capital_disponible || 0), 0
       )
-
       const inversoresActivos = listaInversoresHabilitados.length
 
       // 2. Obtener todos los préstamos
@@ -46,21 +58,38 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
         .from('prestamos')
         .select('*')
 
-      if (errP) throw errP
+      if (errP) console.warn('Aviso al cargar préstamos:', errP.message)
 
       // 3. Obtener todos los pagos
       const { data: pagos, error: errPagos } = await supabase
         .from('pagos')
         .select('*')
 
-      if (errPagos) throw errPagos
+      if (errPagos) console.warn('Aviso al cargar pagos:', errPagos.message)
 
-      const prestamosList = prestamos || []
-      const pagosList = pagos || []
+      let prestamosList = prestamos || []
+      let pagosList = pagos || []
 
-      // --- CÁLCULOS GENERALES ---
-      const totalPrestado = prestamosList.reduce((acc, p) => acc + Number(p.monto_capital || 0), 0)
-      const totalADevolver = prestamosList.reduce((acc, p) => acc + Number(p.monto_total_pagar || 0), 0)
+      // 🔴 FILTRADO POR FECHA (SI SE ELIGIÓ UN MES ESPECÍFICO)
+      if (filtroPeriodo === 'mes') {
+        prestamosList = prestamosList.filter((p) => {
+          const fechaStr = p.created_at || p.fecha_inicio
+          if (!fechaStr) return false
+          const f = new Date(fechaStr)
+          return f.getFullYear() === Number(anioSeleccionado) && (f.getMonth() + 1) === Number(mesSeleccionado)
+        })
+
+        pagosList = pagosList.filter((p) => {
+          const fechaStr = p.created_at || p.fecha_pago
+          if (!fechaStr) return false
+          const f = new Date(fechaStr)
+          return f.getFullYear() === Number(anioSeleccionado) && (f.getMonth() + 1) === Number(mesSeleccionado)
+        })
+      }
+
+      // --- CÁLCULOS GENERALES SEGÚN EL FILTRO ---
+      const totalPrestado = prestamosList.reduce((acc, p) => acc + Number(p.monto_capital || p.monto || 0), 0)
+      const totalADevolver = prestamosList.reduce((acc, p) => acc + Number(p.monto_total_pagar || p.monto_total || 0), 0)
       const interesGenerado = Math.max(0, totalADevolver - totalPrestado)
 
       const totalCobrado = pagosList.reduce((acc, p) => acc + Number(p.monto_cobrado || p.monto_pago || 0), 0)
@@ -95,37 +124,85 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
     return () => {
       supabase.removeChannel(canalRealtime)
     }
-  }, [])
+  }, [filtroPeriodo, mesSeleccionado, anioSeleccionado])
 
   return (
     <section className="w-[95%] mx-auto space-y-4 my-6">
       
-      {/* Cabecera */}
-      <div className="flex items-center justify-between">
+      {/* Cabecera y Selector de Período */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <span className="text-[11px] font-bold tracking-widest uppercase text-[#0d6b63]">
-            PANORAMA OPERATIVO
+          <span className="text-[10px] font-bold tracking-widest uppercase text-[#0d6b63]">
+            ESTADÍSTICAS GENERALES
           </span>
           <h2 className="text-2xl sm:text-3xl font-serif font-bold text-[#1d2939] mt-0.5">
-            Números que importan
+            PANORAMA OPERATIVO
           </h2>
         </div>
 
-        <button
-          onClick={cargarMetricas}
-          disabled={loading}
-          title="Recargar datos"
-          className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-white border border-line text-xs font-bold text-slate-600 hover:text-[#0d6b63] hover:border-[#0d6b63] transition-all cursor-pointer shadow-xs disabled:opacity-50"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          <span className="hidden sm:inline">Actualizar</span>
-        </button>
+        {/* CONTROLES DE FILTRADO POR MES / AÑO */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center bg-white p-1 rounded-2xl border border-line shadow-xs">
+            <button
+              onClick={() => setFiltroPeriodo('historico')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                filtroPeriodo === 'historico' ? 'bg-[#0d6b63] text-white' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Histórico
+            </button>
+            <button
+              onClick={() => setFiltroPeriodo('mes')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                filtroPeriodo === 'mes' ? 'bg-[#0d6b63] text-white' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Por Mes
+            </button>
+          </div>
+
+          {/* Desplegables de Mes y Año cuando 'Por Mes' está activo */}
+          {filtroPeriodo === 'mes' && (
+            <>
+              <select
+                value={mesSeleccionado}
+                onChange={(e) => setMesSeleccionado(Number(e.target.value))}
+                className="rounded-2xl border border-line bg-white px-3 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 cursor-pointer shadow-xs"
+              >
+                {MESES.map((m, idx) => (
+                  <option key={idx} value={idx + 1}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={anioSeleccionado}
+                onChange={(e) => setAnioSeleccionado(Number(e.target.value))}
+                className="rounded-2xl border border-line bg-white px-3 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 cursor-pointer shadow-xs"
+              >
+                <option value={2026}>2026</option>
+                <option value={2025}>2025</option>
+                <option value={2024}>2024</option>
+              </select>
+            </>
+          )}
+
+          <button
+            onClick={cargarMetricas}
+            disabled={loading}
+            title="Recargar datos"
+            className="flex items-center gap-2 p-2 rounded-2xl bg-white border border-line text-xs font-bold text-slate-600 hover:text-[#0d6b63] hover:border-[#0d6b63] transition-all cursor-pointer shadow-xs disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
 
       {/* GRILLA PRINCIPAL DE MÉTRICAS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 
-        {/* 1. Capital Total Disponible (SOLO HABILITADOS) */}
+        {/* 1. Capital Total Invertido / Disponible */}
         <div className="p-5 rounded-3xl bg-white border border-line shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
           <div className="flex items-center justify-between mb-3">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
@@ -160,7 +237,7 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
               +${metricas.interesGenerado.toLocaleString('es-AR')}
             </p>
             <span className="text-[11px] font-medium text-emerald-600/80 mt-1 block">
-              Rendimiento sobre capital
+              {filtroPeriodo === 'mes' ? `${MESES[mesSeleccionado - 1]} ${anioSeleccionado}` : 'Rendimiento acumulado'}
             </span>
           </div>
         </div>
@@ -180,7 +257,7 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
               ${metricas.totalCobrado.toLocaleString('es-AR')}
             </p>
             <span className="text-[11px] font-medium text-blue-600 mt-1 block">
-              Recaudación acumulada
+              {filtroPeriodo === 'mes' ? `Cobros de ${MESES[mesSeleccionado - 1]}` : 'Recaudación acumulada'}
             </span>
           </div>
         </div>
@@ -200,7 +277,7 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
               ${metricas.balancePendiente.toLocaleString('es-AR')}
             </p>
             <span className="text-[11px] font-medium text-amber-600/80 mt-1 block">
-              Por cobrar en mercado
+              {filtroPeriodo === 'mes' ? `Por cobrar de ${MESES[mesSeleccionado - 1]}` : 'Por cobrar en mercado'}
             </span>
           </div>
         </div>

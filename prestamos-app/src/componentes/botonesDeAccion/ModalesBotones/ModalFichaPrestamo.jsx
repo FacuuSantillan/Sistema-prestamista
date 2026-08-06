@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { X, Calendar, DollarSign, User, Briefcase, CheckCircle2, Clock, Percent } from 'lucide-react'
+import { X, User, Briefcase, CheckCircle2, Clock, Calendar, DollarSign, Receipt, AlertCircle } from 'lucide-react'
 import { supabase } from '../../../lib/supabaseClient'
 
 export default function ModalFichaPrestamo({ isOpen, onClose, prestamo }) {
@@ -11,255 +11,316 @@ export default function ModalFichaPrestamo({ isOpen, onClose, prestamo }) {
   useEffect(() => {
     if (!isOpen || !prestamo) return
 
-    async function loadFichaDetalles() {
+    async function cargarDetallesPrestamo() {
       setLoading(true)
-      setCliente(null)
-      setInversionista(null)
-
       try {
-        // 1. Cargar pagos del préstamo
-        const { data: pagosData } = await supabase
+        // 1. Cargar Pagos registrados para este préstamo
+        const { data: pagosData, error: errPagos } = await supabase
           .from('pagos')
           .select('*')
           .eq('prestamo_id', prestamo.id)
-          .order('fecha_pago', { ascending: false })
+          .order('fecha_pago', { ascending: true })
 
+        if (errPagos) console.warn('Error al cargar pagos:', errPagos.message)
         setPagos(pagosData || [])
 
-        // 2. Cargar datos del cliente (con fallback si viene anidado)
-        const clienteId = prestamo.cliente_id || prestamo.clientes?.id
-
-        if (clienteId) {
-          const { data: cliData, error: cliErr } = await supabase
+        // 2. Cargar Datos del Cliente
+        if (prestamo.cliente_id) {
+          const { data: cliData } = await supabase
             .from('clientes')
             .select('*')
-            .eq('id', clienteId)
-
-          if (!cliErr && cliData && cliData.length > 0) {
-            setCliente(cliData[0])
-          } else if (prestamo.clientes) {
-            setCliente(prestamo.clientes)
-          } else {
-            setCliente({ nombre_completo: 'Cliente no encontrado' })
-          }
-        } else if (prestamo.clientes) {
-          setCliente(prestamo.clientes)
-        } else {
-          setCliente({ nombre_completo: 'Sin cliente asignado' })
+            .eq('id', prestamo.cliente_id)
+            .maybeSingle()
+          setCliente(cliData)
         }
 
-        // 3. Cargar datos del inversionista / fondeador
-        const invId = prestamo.inversionista_id || prestamo.usuario_id
-
-        if (invId) {
-          const { data: invData, error: invErr } = await supabase
+        // 3. Cargar Datos del Inversionista
+        if (prestamo.inversionista_id) {
+          const { data: invData } = await supabase
             .from('usuarios')
             .select('*')
-            .eq('id', invId)
-
-          if (!invErr && invData && invData.length > 0) {
-            setInversionista(invData[0])
-          } else {
-            setInversionista(null)
-          }
+            .eq('id', prestamo.inversionista_id)
+            .maybeSingle()
+          setInversionista(invData)
         } else {
           setInversionista(null)
         }
       } catch (err) {
-        console.error('Error al cargar ficha técnica del préstamo:', err)
-        setCliente({ nombre_completo: 'Error al cargar datos' })
+        console.error('Error al cargar la ficha del préstamo:', err)
       } finally {
         setLoading(false)
       }
     }
 
-    loadFichaDetalles()
+    cargarDetallesPrestamo()
   }, [isOpen, prestamo])
 
   if (!isOpen || !prestamo) return null
 
   // --- CÁLCULOS FINANCIEROS Y DE CUOTAS ---
-  const capital = Number(prestamo.monto_capital || 0)
-  const totalDevolver = Number(prestamo.monto_total_pagar || prestamo.monto_total || 0)
-  const interesGenerado = Math.max(0, totalDevolver - capital)
-  const tasaCalculada = prestamo.tasa_interes ?? (capital > 0 ? ((interesGenerado / capital) * 100).toFixed(1) : 0)
+  const capital = Number(prestamo.monto_capital || prestamo.monto || 0)
+  const totalPagar = Number(prestamo.monto_total_pagar || prestamo.monto_total || 0)
+  const totalCobrado = pagos.reduce((acc, p) => acc + Number(p.monto_cobrado || p.monto_pago || 0), 0)
+  const saldoRestante = Math.max(0, totalPagar - totalCobrado)
+  const porcentajeCobrado = totalPagar > 0 ? Math.min(100, Math.round((totalCobrado / totalPagar) * 100)) : 0
 
-  const totalPagado = pagos.reduce((acc, p) => acc + Number(p.monto_cobrado || p.monto_pago || 0), 0)
-  const saldoPendiente = Math.max(0, totalDevolver - totalPagado)
+  const cantidadCuotas = Number(prestamo.cantidad_cuotas || 1)
+  const valorCuotaCalculado = Number(prestamo.monto_cuota || (totalPagar / cantidadCuotas) || 0)
+  const cuotasPagasCount = Math.min(cantidadCuotas, Math.floor(totalCobrado / (valorCuotaCalculado || 1)))
 
-  const cantidadCuotas = Math.max(1, Number(prestamo.cantidad_cuotas || prestamo.plazo_cuotas || 1))
-  const valorCuota = Number(prestamo.monto_cuota) || (totalDevolver / cantidadCuotas)
+  // Función para calcular la fecha teórica de vencimiento de cada cuota
+  const calcularFechaVencimiento = (fechaInicioStr, numeroCuota, frecuencia) => {
+    if (!fechaInicioStr) return new Date()
+    const fecha = new Date(fechaInicioStr)
+    const freq = (frecuencia || 'mensual').toLowerCase()
 
-  const cuotasCompletadas = Math.floor(totalPagado / (valorCuota || 1))
-  const cuotasPagadas = Math.min(cantidadCuotas, cuotasCompletadas)
-  const porcentajeProgreso = Math.min(100, Math.round((totalPagado / (totalDevolver || 1)) * 100))
+    if (freq.includes('diari')) {
+      fecha.setDate(fecha.getDate() + (numeroCuota - 1))
+    } else if (freq.includes('seman')) {
+      fecha.setDate(fecha.getDate() + (numeroCuota - 1) * 7)
+    } else if (freq.includes('quincen')) {
+      fecha.setDate(fecha.getDate() + (numeroCuota - 1) * 15)
+    } else {
+      // Mensual por defecto
+      fecha.setMonth(fecha.getMonth() + (numeroCuota - 1))
+    }
+    return fecha
+  }
 
-  const formatearFecha = (fechaRaw) => {
-    if (!fechaRaw) return 'N/A'
-    const fecha = fechaRaw.split('T')[0]
-    const [year, month, day] = fecha.split('-')
-    return `${day}/${month}/${year}`
+  // Generación del Desglose de Cuotas
+  const fechaBase = prestamo.fecha_inicio || prestamo.created_at
+  const tablaCuotas = []
+
+  for (let i = 1; i <= cantidadCuotas; i++) {
+    const fechaVencimiento = calcularFechaVencimiento(fechaBase, i, prestamo.frecuencia)
+    
+    // Asignar el pago correspondiente a esta cuota si existe en el historial
+    const pagoAsociado = pagos[i - 1] || null
+    const esCuotaCobrada = i <= cuotasPagasCount || (pagoAsociado !== null)
+
+    tablaCuotas.push({
+      numeroCuota: i,
+      monto: valorCuotaCalculado,
+      fechaVencimiento: fechaVencimiento,
+      estaCobrada: esCuotaCobrada,
+      pagoInfo: pagoAsociado
+    })
+  }
+
+  // Formatear fechas
+  const formatearFechaSimple = (fechaObj) => {
+    if (!fechaObj) return ''
+    const d = new Date(fechaObj)
+    const dia = String(d.getDate()).padStart(2, '0')
+    const mes = String(d.getMonth() + 1).padStart(2, '0')
+    const año = d.getFullYear()
+    return `${dia}/${mes}/${año}`
+  }
+
+  const formatearFechaHora = (fechaRaw) => {
+    if (!fechaRaw) return ''
+    const d = new Date(fechaRaw)
+    const dia = String(d.getDate()).padStart(2, '0')
+    const mes = String(d.getMonth() + 1).padStart(2, '0')
+    const año = d.getFullYear()
+    const horas = String(d.getHours()).padStart(2, '0')
+    const minutos = String(d.getMinutes()).padStart(2, '0')
+    return `${dia}/${mes}/${año} a las ${horas}:${minutos} hs`
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
- 
-<div className="w-full max-w-3xl rounded-3xl bg-cream p-6 sm:p-8 shadow-2xl border border-line max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="w-full max-w-4xl rounded-3xl bg-cream p-6 sm:p-8 shadow-2xl border border-line h-[90vh] flex flex-col overflow-hidden">
         
-        {/* Cabecera */}
+        {/* ENCABEZADO */}
         <div className="flex items-center justify-between pb-4 border-b border-line shrink-0">
           <div>
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-bold tracking-widest uppercase text-[#0d6b63]">
                 FICHA TÉCNICA DE PRÉSTAMO
               </span>
-              <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
-                prestamo.estado === 'activo' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'
+              <span className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full ${
+                prestamo.estado === 'finalizado' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
               }`}>
-                {prestamo.estado}
+                {prestamo.estado === 'finalizado' ? 'FINALIZADO' : prestamo.estado || 'ACTIVO'}
               </span>
             </div>
-            <h2 className="text-2xl sm:text-3xl font-serif font-bold text-slate-900 mt-0.5">
-              Préstamo #{prestamo.id?.slice(0, 8)}
+            <h2 className="text-2xl sm:text-3xl font-serif font-bold text-[#1d2939] mt-0.5">
+              Préstamo #{prestamo.id?.toString().substring(0, 8) || '001'}
             </h2>
           </div>
-          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 rounded-xl cursor-pointer">
+
+          <button 
+            onClick={onClose} 
+            className="p-2 text-slate-400 hover:text-slate-700 rounded-xl cursor-pointer"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Contenido Desplazable */}
-        <div className="flex-1 overflow-y-auto space-y-6 pt-4 pr-1">
-          
-          {/* Fila 1: Cliente y Origen */}
+        {/* CONTENIDO SCROLLABLE */}
+        <div className="flex-1 overflow-y-auto space-y-5 pt-4 pr-1">
+
+          {/* PERFILES: CLIENTE E INVERSIONISTA */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Cliente */}
             <div className="p-4 rounded-2xl bg-white border border-line flex items-center gap-3">
               <div className="p-3 rounded-xl bg-[#0d6b63]/10 text-[#0d6b63]">
                 <User className="w-5 h-5" />
               </div>
               <div>
-                <span className="text-[10px] font-bold uppercase text-slate-400 block">Cliente Asignado</span>
-                <h4 className="font-bold text-sm text-slate-900">
-                  {cliente ? (cliente.nombre_completo || cliente.nombre || 'Sin nombre') : 'Cargando...'}
+                <span className="text-[10px] font-bold uppercase text-slate-400 block">CLIENTE ASIGNADO</span>
+                <h4 className="font-bold text-slate-900 text-sm">
+                  {cliente?.nombre_completo || prestamo.clientes?.nombre_completo || 'Cliente'}
                 </h4>
-                {cliente?.telefono && <span className="text-xs text-slate-500">Tel: {cliente.telefono}</span>}
+                <span className="text-xs text-slate-500 font-medium">
+                  Tel: {cliente?.telefono || 'Sin teléfono'}
+                </span>
               </div>
             </div>
 
+            {/* Inversionista */}
             <div className="p-4 rounded-2xl bg-white border border-line flex items-center gap-3">
               <div className="p-3 rounded-xl bg-[#0d6b63]/10 text-[#0d6b63]">
                 <Briefcase className="w-5 h-5" />
               </div>
               <div>
-                <span className="text-[10px] font-bold uppercase text-slate-400 block">Fondeador / Inversionista</span>
-                <h4 className="font-bold text-sm text-slate-900">
+                <span className="text-[10px] font-bold uppercase text-slate-400 block">FONDEADOR / INVERSIONISTA</span>
+                <h4 className="font-bold text-slate-900 text-sm">
                   {inversionista ? (inversionista.nombre_completo || inversionista.nombre) : 'Propio (Administrador)'}
                 </h4>
-                <span className="text-xs text-slate-500">Origen de Capital</span>
+                <span className="text-xs text-slate-500 font-medium">Origen de Capital</span>
               </div>
             </div>
           </div>
 
-          {/* Fila 2: Tarjetas Métricas */}
+          {/* RESUMEN FINANCIERO */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="p-3.5 rounded-2xl bg-white border border-line">
-              <span className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1">
-                <DollarSign className="w-3.5 h-3.5 text-[#0d6b63]" /> Capital
-              </span>
-              <p className="text-lg font-bold text-slate-900 mt-1">${capital.toLocaleString('es-AR')}</p>
+            <div className="p-4 rounded-2xl bg-white border border-line">
+              <span className="text-[10px] font-bold uppercase text-slate-400 block">CAPITAL ENTREGADO</span>
+              <p className="text-lg sm:text-xl font-bold text-slate-900 mt-1">
+                ${capital.toLocaleString('es-AR')}
+              </p>
             </div>
 
-            <div className="p-3.5 rounded-2xl bg-white border border-line">
-              <span className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1">
-                <Percent className="w-3.5 h-3.5 text-[#0d6b63]" /> Interés ({tasaCalculada}%)
-              </span>
-              <p className="text-lg font-bold text-emerald-700 mt-1">+${interesGenerado.toLocaleString('es-AR')}</p>
+            <div className="p-4 rounded-2xl bg-white border border-line">
+              <span className="text-[10px] font-bold uppercase text-slate-400 block">INTERÉS APLICADO</span>
+              <p className="text-lg sm:text-xl font-bold text-emerald-700 mt-1">
+                +${Math.max(0, totalPagar - capital).toLocaleString('es-AR')}
+              </p>
             </div>
 
-            <div className="p-3.5 rounded-2xl bg-white border border-line">
-              <span className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Total Cobrado
-              </span>
-              <p className="text-lg font-bold text-emerald-600 mt-1">${totalPagado.toLocaleString('es-AR')}</p>
+            <div className="p-4 rounded-2xl bg-white border border-line">
+              <span className="text-[10px] font-bold uppercase text-slate-400 block">TOTAL COBRADO</span>
+              <p className="text-lg sm:text-xl font-bold text-blue-800 mt-1">
+                ${totalCobrado.toLocaleString('es-AR')}
+              </p>
             </div>
 
-            <div className="p-3.5 rounded-2xl bg-white border border-line">
-              <span className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5 text-amber-600" /> Saldo Restante
-              </span>
-              <p className="text-lg font-bold text-amber-600 mt-1">${saldoPendiente.toLocaleString('es-AR')}</p>
+            <div className="p-4 rounded-2xl bg-white border border-line">
+              <span className="text-[10px] font-bold uppercase text-slate-400 block">SALDO RESTANTE</span>
+              <p className="text-lg sm:text-xl font-bold text-amber-700 mt-1">
+                ${saldoRestante.toLocaleString('es-AR')}
+              </p>
             </div>
           </div>
 
-          {/* Barra de Progreso de Cobro */}
-          <div className="p-4 rounded-2xl bg-white border border-line">
-            <div className="flex items-center justify-between text-xs font-bold text-slate-700 mb-2">
+          {/* BARRA DE PROGRESO */}
+          <div className="p-4 rounded-2xl bg-white border border-line space-y-2">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-700">
               <span>PROGRESO DE CANCELACIÓN</span>
-              <span>{porcentajeProgreso}% Recaudado</span>
+              <span className="text-[#0d6b63]">{porcentajeCobrado}% Recaudado</span>
             </div>
             <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
               <div 
                 className="h-full bg-[#0d6b63] transition-all duration-500 rounded-full"
-                style={{ width: `${porcentajeProgreso}%` }}
+                style={{ width: `${porcentajeCobrado}%` }}
               />
             </div>
           </div>
 
-          {/* Detalles del Plan y Esquema de Cuotas */}
-          <div className="p-4 rounded-2xl bg-white border border-line grid grid-cols-2 sm:grid-cols-3 gap-4 text-xs">
-            <div>
-              <span className="text-slate-400 font-bold uppercase text-[10px] block">Total A Devolver</span>
-              <span className="font-bold text-slate-900 text-sm">${totalDevolver.toLocaleString('es-AR')}</span>
+          {/* 🔴 NUEVA SECCIÓN: DESGLOSE DE CUOTAS (COBRADAS Y POR COBRAR) */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-[#0d6b63]" />
+                Cronograma y Desglose de Cuotas ({cantidadCuotas})
+              </h4>
+              <span className="text-xs font-semibold text-slate-500 bg-white px-2.5 py-1 rounded-lg border border-line">
+                {cuotasPagasCount} de {cantidadCuotas} cuotas pagadas
+              </span>
             </div>
-
-            <div>
-              <span className="text-slate-400 font-bold uppercase text-[10px] block">Cuotas Pagadas</span>
-              <span className="font-bold text-slate-900 text-sm">{cuotasPagadas} de {cantidadCuotas} cuotas</span>
-            </div>
-
-            <div>
-              <span className="text-slate-400 font-bold uppercase text-[10px] block">Valor de Cuota</span>
-              <span className="font-bold text-slate-900 text-sm">${valorCuota.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-            </div>
-
-            <div>
-              <span className="text-slate-400 font-bold uppercase text-[10px] block">Frecuencia</span>
-              <span className="font-bold text-slate-900 text-sm capitalize">{prestamo.frecuencia || 'Mensual'}</span>
-            </div>
-
-            <div>
-              <span className="text-slate-400 font-bold uppercase text-[10px] block">Fecha de Emisión</span>
-              <span className="font-bold text-slate-900 text-sm">{formatearFecha(prestamo.fecha_inicio)}</span>
-            </div>
-          </div>
-
-          {/* Historial de Cobros de este Préstamo */}
-          <div>
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2.5 flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-[#0d6b63]" />
-              Historial de Pagos de este Préstamo ({pagos.length})
-            </h4>
 
             {loading ? (
-              <p className="text-xs text-slate-400 py-4 text-center">Cargando pagos...</p>
-            ) : pagos.length === 0 ? (
-              <p className="text-xs text-slate-400 bg-white p-4 rounded-2xl border border-line">Aún no se han registrado cobros para este préstamo.</p>
+              <p className="text-xs text-slate-400 text-center py-4 bg-white rounded-2xl border border-line">
+                Cargando historial de cuotas...
+              </p>
             ) : (
               <div className="space-y-2">
-                {pagos.map((pago) => (
-                  <div key={pago.id} className="p-3.5 rounded-2xl bg-white border border-line flex items-center justify-between text-xs">
-                    <div>
-                      <span className="font-bold text-slate-900 text-sm">
-                        ${Number(pago.monto_cobrado || pago.monto_pago || 0).toLocaleString('es-AR')}
-                      </span>
-                      <span className="text-slate-500 ml-2 font-medium">({pago.metodo_pago})</span>
-                      {pago.observaciones && <p className="text-[11px] text-slate-400 italic mt-0.5">{pago.observaciones}</p>}
+                {tablaCuotas.map((cuota) => {
+                  const estaCobrada = cuota.estaCobrada
+                  const fechaCobroReal = cuota.pagoInfo?.fecha_pago || cuota.pagoInfo?.created_at
+                  const metodo = cuota.pagoInfo?.metodo_pago || 'efectivo'
+
+                  return (
+                    <div 
+                      key={cuota.numeroCuota}
+                      className={`p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                        estaCobrada 
+                          ? 'bg-emerald-50/50 border-emerald-200/80' 
+                          : 'bg-white border-line'
+                      }`}
+                    >
+                      {/* Número y Monto de la Cuota */}
+                      <div className="flex items-center gap-3">
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
+                          estaCobrada ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                        }`}>
+                          #{cuota.numeroCuota}
+                        </div>
+
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-slate-900 text-sm">
+                              Cuota #{cuota.numeroCuota} — ${cuota.monto.toLocaleString('es-AR')}
+                            </span>
+                            <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                              estaCobrada 
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
+                                : 'bg-amber-100 text-amber-800 border border-amber-200'
+                            }`}>
+                              {estaCobrada ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                              <span>{estaCobrada ? 'COBRADA' : 'PENDIENTE DE COBRO'}</span>
+                            </span>
+                          </div>
+
+                          {/* Fecha Teórica de Vencimiento */}
+                          <span className="text-xs text-slate-500 font-medium block mt-0.5">
+                            Vencimiento programado: {formatearFechaSimple(cuota.fechaVencimiento)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Detalles del Cobro (Fecha, Hora y Método) */}
+                      <div className="text-left sm:text-right shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200/60">
+                        {estaCobrada ? (
+                          <div>
+                            <span className="text-xs font-bold text-emerald-800 block">
+                              ✓ Cobrada el {formatearFechaHora(fechaCobroReal)}
+                            </span>
+                            <span className="text-[11px] text-slate-500 font-medium">
+                              Método: {metodo.toUpperCase()} {cuota.pagoInfo?.observaciones ? `· ${cuota.pagoInfo.observaciones}` : ''}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-xs font-semibold text-amber-800 bg-amber-50 px-3 py-1 rounded-xl border border-amber-200 inline-block">
+                            Pendiente de pago
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <span className="text-slate-600 font-bold bg-slate-100 px-3 py-1 rounded-xl">
-                      {formatearFecha(pago.fecha_pago)}
-                    </span>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>

@@ -10,6 +10,7 @@ import BotonesDeAccion from './componentes/botonesDeAccion/BotonesDeAccion'
 import ModalFichaPrestamo from './componentes/botonesDeAccion/ModalesBotones/ModalFichaPrestamo'
 import PanoramaEstadisticas from './componentes/panoramaEstadisticas/PanoramaEstadisticas'
 import RegistrosRecientes from './componentes/Registros/RegistrosRecientes'
+import GraficoEstadistico  from './componentes/panoramaEstadisticas/GraficoEstadistico'
 
 export default function App() {
   // Guarda el préstamo a mostrar en la ficha técnica
@@ -52,11 +53,12 @@ export default function App() {
 
       {/* 1. Pasamos los handlers a BarraSuperior */}
       <BarraSuperior 
-        onOpenClientes={handleOpenDirectorioClientes}
-        onOpenInversionistas={handleOpenDirectorioInversionistas}
+        
       />
 
-      <BotonesDeAccion onOpenModal={(tipo) => setModalActivo(tipo)}/>
+      <BotonesDeAccion onOpenModal={(tipo) => setModalActivo(tipo)}
+        onOpenClientes={handleOpenDirectorioClientes}
+        onOpenInversionistas={handleOpenDirectorioInversionistas}/>
 
       {/* Modales de alta de registros */}
       <ModalInversionista
@@ -116,8 +118,10 @@ export default function App() {
         onAbrirDirectorioInversionistas={handleOpenDirectorioInversionistas}
       />
 
+      <GraficoEstadistico />
+
       {/* 5. Registros Recientes con captura de ID de perfil */}
-      <RegistrosRecientes 
+      {/* <RegistrosRecientes 
         onVerFichaPrestamo={handleAbrirFichaPrestamo}
         onAbrirCliente={(cliente) => {
           setTipoDirectorio('clientes')
@@ -129,7 +133,7 @@ export default function App() {
           setPerfilSeleccionadoId(inversionista?.id || null)
           setModalActivo('directorio')
         }}
-      />
+      /> */}
 
     </div>
   )
