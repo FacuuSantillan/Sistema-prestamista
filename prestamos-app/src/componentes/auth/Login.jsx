@@ -1,10 +1,11 @@
 import React, { useState } from 'react'
-import { User, Mail, Lock, AlertCircle } from 'lucide-react'
-import { supabase } from '../../lib/supabaseClient'
+import { User, Lock, Mail, Eye, EyeOff, AlertCircle } from 'lucide-react'
+import { supabase } from '../../lib/supabaseClient' // 👈 Si marca error, probá cambiarlo a: import { supabase } from '../lib/supabaseClient' o '../../lib/supabase'
 
 export default function Login({ onLoginSuccess }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [mostrarPassword, setMostrarPassword] = useState(false)
   const [rememberMe, setRememberMe] = useState(true)
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
@@ -14,128 +15,163 @@ export default function Login({ onLoginSuccess }) {
     setLoading(true)
     setErrorMsg('')
 
+    const emailLimpio = email.trim()
+
     try {
-      // 1. Autenticar con Supabase
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+        email: emailLimpio,
+        password: password,
       })
 
-      if (authError) throw authError
+      if (authError) {
+        console.error('Error Auth Supabase:', authError)
+        if (authError.message.includes('Invalid login credentials')) {
+          throw new Error('Correo o contraseña incorrectos.')
+        } else if (authError.message.includes('Email not confirmed')) {
+          throw new Error('El correo electrónico aún no ha sido confirmado.')
+        } else {
+          throw authError
+        }
+      }
 
-      // 2. Obtener perfil de usuario para determinar su rol
       const user = authData.user
-      const { data: usuarioData } = await supabase
+
+      const { data: usuarioData, error: userError } = await supabase
         .from('usuarios')
         .select('*')
         .eq('id', user.id)
         .maybeSingle()
 
+      if (userError) {
+        console.warn('Error leyendo tabla usuarios:', userError.message)
+      }
+
+      const rolDefectuoso = emailLimpio.includes('admin') ? 'admin' : 'inversionista'
+      
       const perfilCompleto = {
         ...user,
-        rol: usuarioData?.rol || (email.includes('admin') ? 'admin' : 'inversionista'),
+        rol: usuarioData?.rol || rolDefectuoso,
         nombre: usuarioData?.nombre_completo || usuarioData?.nombre || user.email
       }
 
-      onLoginSuccess(perfilCompleto)
+      if (typeof onLoginSuccess === 'function') {
+        onLoginSuccess(perfilCompleto)
+      }
     } catch (err) {
-      console.error('Error al iniciar sesión:', err)
-      setErrorMsg('Credenciales inválidas. Verificá tu correo y contraseña.')
+      console.error('Error en login:', err)
+      setErrorMsg(err.message || 'Error al conectar con el servidor.')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    /* FONDO DEGRADADO INSTITUCIONAL */
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-b from-[#14837a] via-[#0d6b63] to-[#0f172a] p-4 select-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-[#14837a] via-[#0d6b63] to-[#0f172a] p-4 select-none">
       
-      {/* TARJETA CENTRADA CON DISEÑO MINIMALISTA */}
-      <div className="w-full max-w-sm flex flex-col items-center space-y-8 px-4">
+      <div className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row border border-white/20 min-h-[390px]">
         
-        {/* ÍCONO CIRCULAR SUPERIOR */}
-        <div className="flex flex-col items-center space-y-4">
-          <div className="w-24 h-24 rounded-full bg-[#084842] border border-white/20 flex items-center justify-center shadow-2xl">
-            <User className="w-12 h-12 text-white stroke-[1.5]" />
+        {/* PANEL IZQUIERDO */}
+        <div className="md:w-1/2 bg-gradient-to-br from-[#14837a] to-[#084842] p-8 text-white flex flex-col justify-center relative overflow-hidden shrink-0">
+          <div className="relative z-10 space-y-3">
+            <span className="text-[10px] font-bold tracking-widest uppercase text-emerald-200">
+              SISTEMA PRESTAMISTAS
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-serif font-bold leading-tight">
+              Gestión y Control Financiero
+            </h2>
+            
           </div>
 
-          <h1 className="text-xl tracking-[0.25em] font-light text-white uppercase text-center">
-            INICIAR SESIÓN
-          </h1>
+          <svg
+            className="absolute -right-1 bottom-0 top-0 h-full w-20 text-white hidden md:block"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            fill="currentColor"
+          >
+            <path d="M0 0 C 60 20, 20 80, 100 100 L 100 0 Z" />
+          </svg>
         </div>
 
-        {/* FORMULARIO CON INPUTS DE LÍNEA INFERIOR */}
-        <form onSubmit={handleLogin} className="w-full space-y-6">
+        {/* PANEL DERECHO */}
+        <div className="md:w-1/2 p-6 sm:p-8 bg-white flex flex-col justify-center space-y-4">
           
-          {/* Campo Email */}
-          <div className="relative border-b border-white/80 pb-2 focus-within:border-white transition-colors">
-            <div className="flex items-center gap-3 text-white">
-              <Mail className="w-5 h-5 opacity-90 shrink-0" />
+          <div className="flex flex-col items-center mb-1">
+            <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-[#084842] to-[#0d6b63] flex items-center justify-center text-white shadow-md">
+              <User className="w-7 h-7 stroke-[1.8]" />
+            </div>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-3.5">
+            
+            <div className="relative flex items-center">
+              <Mail className="w-4 h-4 absolute left-3.5 text-slate-400" />
               <input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Correo Electrónico"
-                className="w-full bg-transparent text-sm text-white placeholder-white/80 focus:outline-none font-light tracking-wide"
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-100/90 rounded-xl text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/30 transition-all"
               />
             </div>
-          </div>
 
-          {/* Campo Password */}
-          <div className="relative border-b border-white/80 pb-2 focus-within:border-white transition-colors">
-            <div className="flex items-center gap-3 text-white">
-              <Lock className="w-5 h-5 opacity-90 shrink-0" />
+            <div className="relative flex items-center">
+              <Lock className="w-4 h-4 absolute left-3.5 text-slate-400" />
               <input
-                type="password"
+                type={mostrarPassword ? "text" : "password"}
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Contraseña"
-                className="w-full bg-transparent text-sm text-white placeholder-white/80 focus:outline-none font-light tracking-wide"
+                className="w-full pl-10 pr-10 py-2.5 bg-slate-100/90 rounded-xl text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/30 transition-all"
               />
+              <button
+                type="button"
+                onClick={() => setMostrarPassword(!mostrarPassword)}
+                className="absolute right-3.5 text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                {mostrarPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
             </div>
-          </div>
 
-          {/* CHECKBOX "RECORDARME" Y "OLVIDÉ CONTRASEÑA" */}
-          <div className="flex items-center justify-between text-xs text-white/90 pt-1 font-light">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                className="w-4 h-4 accent-[#084842] rounded border-white/40 cursor-pointer"
-              />
-              <span>Recordarme</span>
-            </label>
+            <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium px-0.5">
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-[#0d6b63] rounded border-slate-300 cursor-pointer"
+                />
+                <span>Recordarme</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => alert('Por favor contactá al administrador para restablecer tu clave.')}
+                className="hover:text-[#0d6b63] transition-colors cursor-pointer"
+              >
+                ¿Olvidaste tu clave?
+              </button>
+            </div>
+
+            {errorMsg && (
+              <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 flex items-center gap-2 text-xs font-semibold text-red-700">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
 
             <button
-              type="button"
-              onClick={() => alert('Por favor contactá al administrador para restablecer tu clave.')}
-              className="italic hover:underline opacity-90 hover:opacity-100 transition-opacity cursor-pointer"
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-[#084842] to-[#0d6b63] hover:from-[#05312d] hover:to-[#084842] active:scale-[0.99] text-white font-bold text-xs uppercase tracking-wider shadow-md transition-all cursor-pointer disabled:opacity-50 mt-2"
             >
-              ¿Olvidaste tu contraseña?
+              {loading ? 'INGRESANDO...' : 'ENTRAR'}
             </button>
-          </div>
 
-          {/* MENSAJE DE ERROR */}
-          {errorMsg && (
-            <div className="p-3 rounded-xl bg-red-900/60 border border-red-400/40 flex items-center gap-2 text-xs font-medium text-white shadow-lg">
-              <AlertCircle className="w-4 h-4 shrink-0 text-red-300" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
+          </form>
 
-          {/* BOTÓN LOGIN VERDE OSCURO */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3.5 bg-[#084842] hover:bg-[#05312d] active:scale-[0.99] text-white font-semibold tracking-[0.25em] text-xs uppercase shadow-xl transition-all cursor-pointer border border-white/10 disabled:opacity-50 mt-4"
-          >
-            {loading ? 'INGRESANDO...' : 'ENTRAR'}
-          </button>
-
-        </form>
+        </div>
 
       </div>
     </div>

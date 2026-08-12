@@ -1,5 +1,5 @@
 import React from "react";
-import { Landmark, UserPlus, Users, HandCoins, ReceiptText, Briefcase } from "lucide-react";
+import { Landmark, UserPlus, Users, HandCoins, ReceiptText, Briefcase, ShieldPlus} from "lucide-react";
 import FiltroProvincia from "../barraSuperior/FiltroPorProvincia";
 
 
@@ -37,7 +37,18 @@ export default function BotonesDeAccion({
 
       </div>
 
+     
+
     <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
+
+       <button 
+               onClick={() => onOpenModal && onOpenModal('admin')}
+               className="flex items-center border border-[#0d6b63]/20 gap-2 bg-[#0d6b63]/10 text-[#0d6b63] px-3.5 py-2.5 rounded-xl shadow-sm hover:bg-[#0d6b63]/20 transition-colors duration-200 font-medium text-xs sm:text-sm"
+             >
+               <ShieldPlus className="w-4 h-4" />
+               <span>Agregar admin</span>
+             </button>
+
              {/* Agregar Inversor */}
              <button 
                onClick={() => onOpenModal && onOpenModal('inversionista')}

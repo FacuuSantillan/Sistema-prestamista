@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { LogOut, UserCheck } from 'lucide-react'
+import { LogOut } from 'lucide-react'
 import { supabase } from './lib/supabaseClient'
+
 
 // Autenticación
 import Login from './componentes/auth/Login'
@@ -16,27 +17,40 @@ import ModalDirectorio from "./componentes/barraSuperior/ModalDirectorio"
 import BotonesDeAccion from './componentes/botonesDeAccion/BotonesDeAccion'
 import ModalFichaPrestamo from './componentes/botonesDeAccion/ModalesBotones/ModalFichaPrestamo'
 import PanoramaEstadisticas from './componentes/panoramaEstadisticas/PanoramaEstadisticas'
-import RegistrosRecientes from './componentes/Registros/RegistrosRecientes'
 import GraficoEstadistico from './componentes/panoramaEstadisticas/GraficoEstadistico'
+import ModalAdmin from './componentes/botonesDeAccion/ModalesBotones/ModalAdmin'
+import RegistrosRecientes from './componentes/Registros/RegistrosRecientes'
 
 export default function App() {
-  // Estado de Autenticación
   const [usuario, setUsuario] = useState(null)
   const [checkingAuth, setCheckingAuth] = useState(true)
 
-  // Guarda el préstamo a mostrar en la ficha técnica
   const [prestamoFicha, setPrestamoFicha] = useState(null)
   const [modalActivo, setModalActivo] = useState(null)
-  
-  // Guarda la pestaña inicial del directorio: 'clientes' o 'inversionistas'
   const [tipoDirectorio, setTipoDirectorio] = useState('clientes')
-
-  // Guarda el ID específico del perfil (cliente o inversionista) a seleccionar al abrir el directorio
   const [perfilSeleccionadoId, setPerfilSeleccionadoId] = useState(null)
-
   const [modalFichaAbierta, setModalFichaAbierta] = useState(false)
 
-  // --- VERIFICACIÓN DE SESIÓN CON SUPABASE ---
+  // 🔴 FUNCIÓN PARA REDIMENSIONAR LA VENTANA NATIVA DE TAURI
+const redimensionarVentana = async (esDashboard) => {
+  try {
+    // Si la app está corriendo dentro del entorno de Tauri
+    if (window.__TAURI__?.window) {
+      const appWindow = window.__TAURI__.window.getCurrentWindow();
+      if (esDashboard) {
+        await appWindow.setSize({ type: 'Logical', width: 1280, height: 800 });
+        await appWindow.center();
+      } else {
+        await appWindow.setSize({ type: 'Logical', width: 750, height: 500 });
+        await appWindow.center();
+      }
+    }
+  } catch (err) {
+    console.warn("No se pudo redimensionar la ventana:", err);
+  }
+};
+
+  // Verificar sesión y ajustar tamaño de ventana
   useEffect(() => {
     async function checkSession() {
       try {
@@ -49,11 +63,15 @@ export default function App() {
             .eq('id', session.user.id)
             .maybeSingle()
 
-          setUsuario({
+          const userObj = {
             ...session.user,
             rol: profile?.rol || (session.user.email?.includes('admin') ? 'admin' : 'inversionista'),
             nombre: profile?.nombre_completo || profile?.nombre || session.user.email
-          })
+          }
+          setUsuario(userObj)
+          redimensionarVentana(true) // Expandir ventana
+        } else {
+          redimensionarVentana(false) // Achicar ventana para Login
         }
       } catch (err) {
         console.error('Error al verificar sesión:', err)
@@ -64,7 +82,6 @@ export default function App() {
 
     checkSession()
 
-    // Suscripción a cambios en la autenticación (login / logout)
     const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         const { data: profile } = await supabase
@@ -78,8 +95,10 @@ export default function App() {
           rol: profile?.rol || (session.user.email?.includes('admin') ? 'admin' : 'inversionista'),
           nombre: profile?.nombre_completo || profile?.nombre || session.user.email
         })
+        redimensionarVentana(true) // Expandir
       } else {
         setUsuario(null)
+        redimensionarVentana(false) // Achicar
       }
       setCheckingAuth(false)
     })
@@ -92,19 +111,18 @@ export default function App() {
   const handleLogout = async () => {
     await supabase.auth.signOut()
     setUsuario(null)
+    redimensionarVentana(false)
   }
 
   const handleRefreshData = () => {
     console.log('Registro creado con éxito. Recargando datos...')
   }
 
-  // Función para abrir la ficha técnica
   const handleAbrirFichaPrestamo = (prestamo) => {
     setPrestamoFicha(prestamo)
     setModalFichaAbierta(true)
   }
 
-  // Funciones para abrir el directorio desde la barra superior o panoramas generales
   const handleOpenDirectorioClientes = () => {
     setTipoDirectorio('clientes')
     setPerfilSeleccionadoId(null)
@@ -117,28 +135,24 @@ export default function App() {
     setModalActivo('directorio')
   }
 
-  // 1. PANTALLA DE CARGA INICIAL
   if (checkingAuth) {
     return (
       <div className="min-h-screen bg-paper flex flex-col items-center justify-center text-xs font-bold text-slate-400 space-y-2">
         <div className="w-8 h-8 border-3 border-[#0d6b63] border-t-transparent rounded-full animate-spin" />
-        <span>Verificando credenciales de acceso...</span>
+        <span>Cargando...</span>
       </div>
     )
   }
 
-  // 2. SI NO HAY SESIÓN INICIADA -> MUESTRA EL LOGIN
   if (!usuario) {
     return <Login onLoginSuccess={(u) => setUsuario(u)} />
   }
 
-  // 3. SI ESTÁ AUTENTICADO -> RENDERIZA EL PANEL COMPLETO
-  const esAdmin = usuario.rol === 'admin'
+  const esAdmin = usuario.rol === 'admin' || usuario.rol === 'owner'
+  console.log(usuario)
 
   return (
     <div className="min-h-screen bg-paper pb-12">
-
-      {/* BARRA DE ESTADO Y CONTROL DE SESIÓN */}
       <div className="w-[95%] mx-auto pt-3 flex items-center justify-between text-xs font-medium text-slate-600 border-b border-line/60 pb-2 mb-2">
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -146,33 +160,35 @@ export default function App() {
           <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
             esAdmin ? 'bg-[#0d6b63]/10 text-[#0d6b63]' : 'bg-blue-100 text-blue-800'
           }`}>
-            {esAdmin ? 'Administrador' : 'Inversionista'}
+            {usuario.rol}
           </span>
         </div>
 
         <button
           onClick={handleLogout}
           className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-white border border-line text-slate-600 hover:text-red-600 hover:border-red-200 transition-all cursor-pointer font-bold shadow-2xs"
-          title="Cerrar sesión activa"
         >
           <LogOut className="w-3.5 h-3.5" />
           <span>Cerrar Sesión</span>
         </button>
       </div>
 
-      {/* Barra Superior */}
       <BarraSuperior />
 
-      {/* Botones de Acción */}
       <BotonesDeAccion 
         onOpenModal={(tipo) => setModalActivo(tipo)}
         onOpenClientes={handleOpenDirectorioClientes}
         onOpenInversionistas={handleOpenDirectorioInversionistas}
       />
 
-      {/* Modales de alta de registros */}
       <ModalInversionista
         isOpen={modalActivo === 'inversionista'}
+        onClose={() => setModalActivo(null)}
+        onSuccess={handleRefreshData}
+      />
+
+      <ModalAdmin
+        isOpen={modalActivo === 'admin'}
         onClose={() => setModalActivo(null)}
         onSuccess={handleRefreshData}
       />
@@ -201,7 +217,6 @@ export default function App() {
         onSuccess={handleRefreshData}
       />
 
-      {/* Modal de Directorio */}
       <ModalDirectorio
         isOpen={modalActivo === 'directorio'}
         tipoInicial={tipoDirectorio}
@@ -213,7 +228,6 @@ export default function App() {
         onVerFichaPrestamo={handleAbrirFichaPrestamo}
       />
 
-      {/* Modal de Ficha Técnica del Préstamo */}
       <ModalFichaPrestamo
         isOpen={modalFichaAbierta}
         onClose={() => {
@@ -223,29 +237,27 @@ export default function App() {
         prestamo={prestamoFicha}
       />
 
-      {/* Panorama Estadístico */}
       <PanoramaEstadisticas 
         onAbrirDirectorioInversionistas={handleOpenDirectorioInversionistas}
       />
 
-      {/* Gráfico Estadístico de Barras */}
       <GraficoEstadistico />
 
-      {/* Registros Recientes con captura de ID de perfil */}
-      {/* <RegistrosRecientes 
+      <RegistrosRecientes
         onVerFichaPrestamo={handleAbrirFichaPrestamo}
         onAbrirCliente={(cliente) => {
           setTipoDirectorio('clientes')
           setPerfilSeleccionadoId(cliente?.id || null)
           setModalActivo('directorio')
         }}
+
         onAbrirInversionista={(inversionista) => {
           setTipoDirectorio('inversionistas')
           setPerfilSeleccionadoId(inversionista?.id || null)
           setModalActivo('directorio')
         }}
-      /> */}
 
+      />
     </div>
   )
 }

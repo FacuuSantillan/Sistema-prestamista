@@ -352,41 +352,54 @@ export default function ModalDirectorio({
             </button>
           </div>
         </div>
+{/* 🔴 VISTA 1: INVERSIONISTAS (FILTRADO POR ROL STRICTO) */}
+{tipo === 'inversionistas' ? (
+  <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pt-4 flex-1 overflow-hidden">
+    
+    {/* IZQUIERDA (md:col-span-8): Ficha del Inversionista, Métricas y Préstamos */}
+    <div className="md:col-span-8 flex flex-col h-full overflow-y-auto pr-1 space-y-5">
+      
+      {/* Selector de Inversionista */}
+      <div className="p-4 rounded-2xl bg-white border border-line shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 relative">
+        <div>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-[#0d6b63]">
+            INVERSIONISTA SELECCIONADO
+          </span>
+          <h3 className="text-xl font-serif font-bold text-slate-900 mt-0.5">
+            {inversionistaSeleccionado?.nombre_completo || inversionistaSeleccionado?.nombre || 'Seleccioná un inversionista'}
+          </h3>
+        </div>
 
-        {/* 🔴 VISTA 1: INVERSIONISTAS (NUEVO LAYOUT CON CLIENTES A LA DERECHA) */}
-        {tipo === 'inversionistas' ? (
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pt-4 flex-1 overflow-hidden">
-            
-            {/* IZQUIERDA (md:col-span-8): Ficha del Inversionista, Métricas y Préstamos */}
-            <div className="md:col-span-8 flex flex-col h-full overflow-y-auto pr-1 space-y-5">
-              
-              {/* Selector de Inversionista */}
-              <div className="p-4 rounded-2xl bg-white border border-line shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 relative">
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#0d6b63]">
-                    INVERSIONISTA SELECCIONADO
-                  </span>
-                  <h3 className="text-xl font-serif font-bold text-slate-900 mt-0.5">
-                    {inversionistaSeleccionado?.nombre_completo || inversionistaSeleccionado?.nombre || 'Seleccioná un inversionista'}
-                  </h3>
-                </div>
+        <div className="relative">
+          {/* Obtenemos solo los perfiles con rol === 'inversionista' */}
+          {(() => {
+            const soloInversionistas = listaInversionistas.filter(
+              (inv) => inv.rol === 'inversionista'
+            );
 
-                <div className="relative">
-                  <button
-                    onClick={() => setMenuInversionistasAbierto(!menuInversionistasAbierto)}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0d6b63] text-white text-xs font-bold shadow-xs hover:bg-[#0b5a52] transition-colors cursor-pointer"
-                  >
-                    <Users className="w-4 h-4" />
-                    <span>Ver Listado Inversionistas ({listaInversionistas.length})</span>
-                    <ChevronDown className="w-4 h-4 ml-1" />
-                  </button>
+            return (
+              <>
+                <button
+                  onClick={() => setMenuInversionistasAbierto(!menuInversionistasAbierto)}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0d6b63] text-white text-xs font-bold shadow-xs hover:bg-[#0b5a52] transition-colors cursor-pointer"
+                >
+                  <Users className="w-4 h-4" />
+                  <span>Ver Listado Inversionistas ({soloInversionistas.length})</span>
+                  <ChevronDown className="w-4 h-4 ml-1" />
+                </button>
 
-                  {menuInversionistasAbierto && (
-                    <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl border border-line shadow-2xl z-50 max-h-64 overflow-y-auto p-2">
-                      <span className="text-[10px] font-bold uppercase text-slate-400 px-3 py-1 block border-b border-line mb-1">
-                        Seleccionar Inversionista
-                      </span>
-                      {listaInversionistas.map((inv) => (
+                {menuInversionistasAbierto && (
+                  <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl border border-line shadow-2xl z-50 max-h-64 overflow-y-auto p-2">
+                    <span className="text-[10px] font-bold uppercase text-slate-400 px-3 py-1 block border-b border-line mb-1">
+                      Seleccionar Inversionista
+                    </span>
+                    
+                    {soloInversionistas.length === 0 ? (
+                      <div className="p-3 text-xs text-slate-400 text-center font-medium">
+                        No hay inversionistas registrados
+                      </div>
+                    ) : (
+                      soloInversionistas.map((inv) => (
                         <div
                           key={inv.id}
                           onClick={() => {
@@ -400,13 +413,19 @@ export default function ModalDirectorio({
                           }`}
                         >
                           <span>{inv.nombre_completo || inv.nombre}</span>
-                          <span className="text-[10px] font-normal text-slate-400">Tel: {inv.telefono || 's/d'}</span>
+                          <span className="text-[10px] font-normal text-slate-400">
+                            Tel: {inv.telefono || 's/d'}
+                          </span>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      </div>
 
               {/* Ficha General */}
               {inversionistaSeleccionado && (

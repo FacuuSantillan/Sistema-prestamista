@@ -37,20 +37,23 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
   const cargarMetricas = async () => {
     setLoading(true)
     try {
-      // 1. Obtener solo usuarios/inversionistas ACTIVOS (activo = true)
+      // 1. Obtener SOLO usuarios con rol 'inversionista' y estado ACTIVOS (activo = true)
       const { data: inversionistas, error: errInv } = await supabase
         .from('usuarios')
-        .select('id, capital_disponible, activo')
+        .select('id, capital_disponible, activo, rol')
         .eq('activo', true)
+        .eq('rol', 'inversionista') // 🔴 FILTRO CLAVE: Excluye 'admin', 'owner' y 'cliente'
 
-      if (errInv) console.warn('Aviso al cargar usuarios activos:', errInv.message)
+      if (errInv) console.warn('Aviso al cargar inversionistas activos:', errInv.message)
 
       const listaInversoresHabilitados = inversionistas || []
 
-      // Capital total disponible siempre representa la caja activa actual
+      // Capital total disponible de la caja exclusiva de inversores
       const capitalTotalDisponible = listaInversoresHabilitados.reduce(
         (acc, inv) => acc + Number(inv.capital_disponible || 0), 0
       )
+      
+      // Cantidad exacta de perfiles con rol 'inversionista'
       const inversoresActivos = listaInversoresHabilitados.length
 
       // 2. Obtener todos los préstamos
@@ -194,7 +197,7 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
             title="Recargar datos"
             className="flex items-center gap-2 p-2 rounded-2xl bg-white border border-line text-xs font-bold text-slate-600 hover:text-[#0d6b63] hover:border-[#0d6b63] transition-all cursor-pointer shadow-xs disabled:opacity-50"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-[#0d6b63]' : ''}`} />
           </button>
         </div>
       </div>
@@ -213,12 +216,21 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
             </div>
           </div>
           <div>
-            <p className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
-              ${metricas.capitalTotalDisponible.toLocaleString('es-AR')}
-            </p>
-            <span className="text-[11px] font-medium text-slate-400 mt-1 block">
-              Suma de inversionistas habilitados
-            </span>
+            {loading ? (
+              <div className="space-y-2 py-1">
+                <div className="h-8 w-36 bg-slate-200/80 rounded-xl animate-pulse" />
+                <div className="h-3 w-28 bg-slate-100 rounded-md animate-pulse" />
+              </div>
+            ) : (
+              <>
+                <p className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
+                  ${metricas.capitalTotalDisponible.toLocaleString('es-AR')}
+                </p>
+                <span className="text-[11px] font-medium text-slate-400 mt-1 block">
+                  Suma de inversionistas habilitados
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -233,12 +245,21 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
             </div>
           </div>
           <div>
-            <p className="text-2xl sm:text-3xl font-bold text-emerald-700 tracking-tight">
-              +${metricas.interesGenerado.toLocaleString('es-AR')}
-            </p>
-            <span className="text-[11px] font-medium text-emerald-600/80 mt-1 block">
-              {filtroPeriodo === 'mes' ? `${MESES[mesSeleccionado - 1]} ${anioSeleccionado}` : 'Rendimiento acumulado'}
-            </span>
+            {loading ? (
+              <div className="space-y-2 py-1">
+                <div className="h-8 w-36 bg-emerald-100/60 rounded-xl animate-pulse" />
+                <div className="h-3 w-28 bg-slate-100 rounded-md animate-pulse" />
+              </div>
+            ) : (
+              <>
+                <p className="text-2xl sm:text-3xl font-bold text-emerald-700 tracking-tight">
+                  +${metricas.interesGenerado.toLocaleString('es-AR')}
+                </p>
+                <span className="text-[11px] font-medium text-emerald-600/80 mt-1 block">
+                  {filtroPeriodo === 'mes' ? `${MESES[mesSeleccionado - 1]} ${anioSeleccionado}` : 'Rendimiento acumulado'}
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -253,12 +274,21 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
             </div>
           </div>
           <div>
-            <p className="text-2xl sm:text-3xl font-bold text-blue-800 tracking-tight">
-              ${metricas.totalCobrado.toLocaleString('es-AR')}
-            </p>
-            <span className="text-[11px] font-medium text-blue-600 mt-1 block">
-              {filtroPeriodo === 'mes' ? `Cobros de ${MESES[mesSeleccionado - 1]}` : 'Recaudación acumulada'}
-            </span>
+            {loading ? (
+              <div className="space-y-2 py-1">
+                <div className="h-8 w-36 bg-blue-100/60 rounded-xl animate-pulse" />
+                <div className="h-3 w-28 bg-slate-100 rounded-md animate-pulse" />
+              </div>
+            ) : (
+              <>
+                <p className="text-2xl sm:text-3xl font-bold text-blue-800 tracking-tight">
+                  ${metricas.totalCobrado.toLocaleString('es-AR')}
+                </p>
+                <span className="text-[11px] font-medium text-blue-600 mt-1 block">
+                  {filtroPeriodo === 'mes' ? `Cobros de ${MESES[mesSeleccionado - 1]}` : 'Recaudación acumulada'}
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -273,12 +303,21 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
             </div>
           </div>
           <div>
-            <p className="text-2xl sm:text-3xl font-bold text-amber-700 tracking-tight">
-              ${metricas.balancePendiente.toLocaleString('es-AR')}
-            </p>
-            <span className="text-[11px] font-medium text-amber-600/80 mt-1 block">
-              {filtroPeriodo === 'mes' ? `Por cobrar de ${MESES[mesSeleccionado - 1]}` : 'Por cobrar en mercado'}
-            </span>
+            {loading ? (
+              <div className="space-y-2 py-1">
+                <div className="h-8 w-36 bg-amber-100/60 rounded-xl animate-pulse" />
+                <div className="h-3 w-28 bg-slate-100 rounded-md animate-pulse" />
+              </div>
+            ) : (
+              <>
+                <p className="text-2xl sm:text-3xl font-bold text-amber-700 tracking-tight">
+                  ${metricas.balancePendiente.toLocaleString('es-AR')}
+                </p>
+                <span className="text-[11px] font-medium text-amber-600/80 mt-1 block">
+                  {filtroPeriodo === 'mes' ? `Por cobrar de ${MESES[mesSeleccionado - 1]}` : 'Por cobrar en mercado'}
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -298,12 +337,21 @@ export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                 INVERSORES ACTIVOS Y HABILITADOS
               </span>
-              <p className="text-2xl font-bold text-slate-900 mt-0.5">
-                {metricas.inversoresActivos} {metricas.inversoresActivos === 1 ? 'Inversor habilitado' : 'Inversores habilitados'}
-              </p>
-              <span className="text-xs text-slate-400 block mt-0.5">
-                Hacé clic para gestionar perfiles, altas y deshabilitaciones
-              </span>
+              {loading ? (
+                <div className="space-y-1.5 mt-1">
+                  <div className="h-7 w-48 bg-slate-200/80 rounded-xl animate-pulse" />
+                  <div className="h-3 w-64 bg-slate-100 rounded-md animate-pulse" />
+                </div>
+              ) : (
+                <>
+                  <p className="text-2xl font-bold text-slate-900 mt-0.5">
+                    {metricas.inversoresActivos} {metricas.inversoresActivos === 1 ? 'Inversor habilitado' : 'Inversores habilitados'}
+                  </p>
+                  <span className="text-xs text-slate-400 block mt-0.5">
+                    Hacé clic para gestionar perfiles, altas y deshabilitaciones
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
