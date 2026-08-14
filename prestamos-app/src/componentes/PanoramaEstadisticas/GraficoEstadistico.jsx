@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, Users, Briefcase, CreditCard, TrendingUp } from 'lucide-react'
 import {
   ResponsiveContainer,
-  BarChart,
+  ComposedChart,
+  Line,
   Bar,
   XAxis,
   YAxis,
@@ -18,138 +19,95 @@ const MESES = [
 ]
 
 export default function GraficoEstadistico() {
-  const [modo, setModo] = useState('mensual') // 'mensual' | 'anual'
+  const [modo, setModo] = useState('mensual') // 'mensual' (diario) | 'anual' (meses)
   const fechaActual = new Date()
   const [anioSeleccionado, setAnioSeleccionado] = useState(fechaActual.getFullYear())
-  const [mesSeleccionado, setMesSeleccionado] = useState(fechaActual.getMonth() + 1) // 1 a 12
+  const [mesSeleccionado, setMesSeleccionado] = useState(fechaActual.getMonth() + 1)
 
   const [datosGrafico, setDatosGrafico] = useState([])
   const [totalesPeriodo, setTotalesPeriodo] = useState({
     clientes: 0,
+    inversionistas: 0,
     prestamos: 0,
     interes: 0
   })
   const [loading, setLoading] = useState(true)
 
-  // Cargar y procesar datos desde Supabase
   const cargarEstadisticas = async () => {
     setLoading(true)
     try {
-      // 1. Cargar Clientes (Se usa select('*') para evitar error 400 por columnas inexistentes)
-      const { data: clientes, error: errClientes } = await supabase
+      // 1. Cargar Clientes (ahora con created_at)
+      const { data: clientes, error: errC } = await supabase
         .from('clientes')
-        .select('*')
+        .select('created_at')
+      
+      if (errC) console.error('Error clientes:', errC)
 
-      if (errClientes) console.warn('Aviso al cargar clientes para estadísticas:', errClientes.message)
+      // 2. Cargar Inversionistas (ahora con created_at)
+      const { data: inversionistas, error: errI } = await supabase
+        .from('usuarios')
+        .select('created_at')
+        .eq('rol', 'inversionista')
+      
+      if (errI) console.error('Error inversionistas:', errI)
 
-      // 2. Cargar Préstamos
-      const { data: prestamos, error: errPrestamos } = await supabase
+      // 3. Cargar Préstamos (utiliza fecha_inicio y created_at)
+      const { data: prestamos, error: errP } = await supabase
         .from('prestamos')
-        .select('*')
-
-      if (errPrestamos) console.warn('Aviso al cargar préstamos para estadísticas:', errPrestamos.message)
+        .select('created_at, fecha_inicio, monto_capital, monto_total_pagar')
+      
+      if (errP) console.error('Error préstamos:', errP)
 
       const listaClientes = clientes || []
+      const listaInversionistas = inversionistas || []
       const listaPrestamos = prestamos || []
 
       if (modo === 'anual') {
-        // --- MODO ANUAL: 12 barras (un mes por barra) ---
         const desgloseAnual = MESES.map((nombreMes, index) => {
           const numMes = index + 1
 
-          // Filtrar clientes creados en este año y mes
-          const cantClientes = listaClientes.filter((c) => {
-            const fechaStr = c.created_at || c.creado_en
-            if (!fechaStr) return false
-            const f = new Date(fechaStr)
-            return f.getFullYear() === Number(anioSeleccionado) && (f.getMonth() + 1) === numMes
-          }).length
-
-          // Filtrar préstamos de este año y mes
-          const prestamosMes = listaPrestamos.filter((p) => {
-            const fechaStr = p.created_at || p.fecha_inicio
-            if (!fechaStr) return false
-            const f = new Date(fechaStr)
-            return f.getFullYear() === Number(anioSeleccionado) && (f.getMonth() + 1) === numMes
-          })
-
-          const cantPrestamos = prestamosMes.length
-          const interesMes = prestamosMes.reduce((acc, p) => {
-            const capital = Number(p.monto_capital || p.monto || 0)
-            const totalPagar = Number(p.monto_total_pagar || p.monto_total || 0)
-            return acc + Math.max(0, totalPagar - capital)
-          }, 0)
+          const cantClientes = listaClientes.filter(c => coincideMes(c.created_at, anioSeleccionado, numMes)).length
+          const cantInversionistas = listaInversionistas.filter(i => coincideMes(i.created_at, anioSeleccionado, numMes)).length
+          const prestamosMes = listaPrestamos.filter(p => coincideMes(p.fecha_inicio || p.created_at, anioSeleccionado, numMes))
+          
+          const interesMes = calcularInteres(prestamosMes)
 
           return {
-            periodo: nombreMes.substring(0, 3), // Ene, Feb, Mar...
+            periodo: nombreMes.substring(0, 3),
             clientes: cantClientes,
-            prestamos: cantPrestamos,
+            inversionistas: cantInversionistas,
+            prestamos: prestamosMes.length,
             interes: interesMes
           }
         })
 
         setDatosGrafico(desgloseAnual)
-
-        // Calcular totales acumulados del año
-        setTotalesPeriodo({
-          clientes: desgloseAnual.reduce((acc, d) => acc + d.clientes, 0),
-          prestamos: desgloseAnual.reduce((acc, d) => acc + d.prestamos, 0),
-          interes: desgloseAnual.reduce((acc, d) => acc + d.interes, 0)
-        })
+        actualizarTotales(desgloseAnual)
 
       } else {
-        // --- MODO MENSUAL: Comparativa de semanas del mes seleccionado ---
+        // Modo Mensual con desglose diario (1 al 31)
         const diasEnMes = new Date(anioSeleccionado, mesSeleccionado, 0).getDate()
-        const semanas = [
-          { label: 'Sem 1 (1-7)', min: 1, max: 7 },
-          { label: 'Sem 2 (8-14)', min: 8, max: 14 },
-          { label: 'Sem 3 (15-21)', min: 15, max: 21 },
-          { label: 'Sem 4 (22+)', min: 22, max: diasEnMes }
-        ]
+        
+        const desgloseDiario = Array.from({ length: diasEnMes }, (_, i) => {
+          const dia = i + 1
 
-        const desgloseMensual = semanas.map((sem) => {
-          const cantClientes = listaClientes.filter((c) => {
-            const fechaStr = c.created_at || c.creado_en
-            if (!fechaStr) return false
-            const f = new Date(fechaStr)
-            const dia = f.getDate()
-            return f.getFullYear() === Number(anioSeleccionado) &&
-                   (f.getMonth() + 1) === Number(mesSeleccionado) &&
-                   dia >= sem.min && dia <= sem.max
-          }).length
-
-          const prestamosSem = listaPrestamos.filter((p) => {
-            const fechaStr = p.created_at || p.fecha_inicio
-            if (!fechaStr) return false
-            const f = new Date(fechaStr)
-            const dia = f.getDate()
-            return f.getFullYear() === Number(anioSeleccionado) &&
-                   (f.getMonth() + 1) === Number(mesSeleccionado) &&
-                   dia >= sem.min && dia <= sem.max
-          })
-
-          const cantPrestamos = prestamosSem.length
-          const interesSem = prestamosSem.reduce((acc, p) => {
-            const capital = Number(p.monto_capital || p.monto || 0)
-            const totalPagar = Number(p.monto_total_pagar || p.monto_total || 0)
-            return acc + Math.max(0, totalPagar - capital)
-          }, 0)
+          const cantClientes = listaClientes.filter(c => coincideDia(c.created_at, anioSeleccionado, mesSeleccionado, dia)).length
+          const cantInversionistas = listaInversionistas.filter(inv => coincideDia(inv.created_at, anioSeleccionado, mesSeleccionado, dia)).length
+          const prestamosDia = listaPrestamos.filter(p => coincideDia(p.fecha_inicio || p.created_at, anioSeleccionado, mesSeleccionado, dia))
+          
+          const interesDia = calcularInteres(prestamosDia)
 
           return {
-            periodo: sem.label,
+            periodo: dia.toString(),
             clientes: cantClientes,
-            prestamos: cantPrestamos,
-            interes: interesSem
+            inversionistas: cantInversionistas,
+            prestamos: prestamosDia.length,
+            interes: interesDia
           }
         })
 
-        setDatosGrafico(desgloseMensual)
-
-        setTotalesPeriodo({
-          clientes: desgloseMensual.reduce((acc, d) => acc + d.clientes, 0),
-          prestamos: desgloseMensual.reduce((acc, d) => acc + d.prestamos, 0),
-          interes: desgloseMensual.reduce((acc, d) => acc + d.interes, 0)
-        })
+        setDatosGrafico(desgloseDiario)
+        actualizarTotales(desgloseDiario)
       }
 
     } catch (err) {
@@ -159,29 +117,70 @@ export default function GraficoEstadistico() {
     }
   }
 
+  // Comparadores directos de texto para evitar errores de huso horario
+  const coincideMes = (fechaStr, anio, mes) => {
+    if (!fechaStr) return false
+    const year = parseInt(fechaStr.substring(0, 4), 10)
+    const month = parseInt(fechaStr.substring(5, 7), 10)
+    return year === Number(anio) && month === Number(mes)
+  }
+
+  const coincideDia = (fechaStr, anio, mes, dia) => {
+    if (!fechaStr) return false
+    const year = parseInt(fechaStr.substring(0, 4), 10)
+    const month = parseInt(fechaStr.substring(5, 7), 10)
+    const day = parseInt(fechaStr.substring(8, 10), 10)
+    return year === Number(anio) && month === Number(mes) && day === Number(dia)
+  }
+
+  const calcularInteres = (prestamosArr) => {
+    return prestamosArr.reduce((acc, p) => {
+      const capital = Number(p.monto_capital || 0)
+      const totalPagar = Number(p.monto_total_pagar || 0)
+      return acc + Math.max(0, totalPagar - capital)
+    }, 0)
+  }
+
+  const actualizarTotales = (datos) => {
+    setTotalesPeriodo({
+      clientes: datos.reduce((acc, d) => acc + d.clientes, 0),
+      inversionistas: datos.reduce((acc, d) => acc + d.inversionistas, 0),
+      prestamos: datos.reduce((acc, d) => acc + d.prestamos, 0),
+      interes: datos.reduce((acc, d) => acc + d.interes, 0)
+    })
+  }
+
   useEffect(() => {
     cargarEstadisticas()
   }, [modo, mesSeleccionado, anioSeleccionado])
 
-  // Custom Tooltip para formatear montos en pesos
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
+      const titulo = modo === 'mensual' ? `Día ${label} de ${MESES[mesSeleccionado - 1]}` : `Mes de ${label}`
+      
       return (
-        <div className="bg-white p-3.5 rounded-2xl border border-line shadow-xl text-xs space-y-1.5">
-          <p className="font-bold text-slate-900 border-b border-line pb-1">{label}</p>
-          {payload.map((entry, index) => (
-            <div key={index} className="flex items-center justify-between gap-4">
-              <span className="font-semibold flex items-center gap-1.5" style={{ color: entry.color }}>
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
-                {entry.name}:
-              </span>
-              <span className="font-bold text-slate-900">
-                {entry.dataKey === 'interes'
-                  ? `$${Number(entry.value).toLocaleString('es-AR')}`
-                  : entry.value}
-              </span>
-            </div>
-          ))}
+        <div className="bg-white p-4 rounded-2xl border border-line shadow-2xl text-xs min-w-[200px]">
+          <p className="font-bold text-slate-900 border-b border-line pb-2 mb-2 uppercase tracking-wide">
+            {titulo}
+          </p>
+          <div className="space-y-2">
+            {payload.map((entry, index) => {
+              if (entry.value === 0) return null
+              return (
+                <div key={index} className="flex items-center justify-between gap-6">
+                  <span className="font-semibold flex items-center gap-2 text-slate-600">
+                    <span className="w-2.5 h-2.5 rounded-full shadow-xs" style={{ backgroundColor: entry.color }} />
+                    {entry.name}:
+                  </span>
+                  <span className="font-bold text-slate-900">
+                    {entry.dataKey === 'interes'
+                      ? `$${Number(entry.value).toLocaleString('es-AR')}`
+                      : entry.value}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )
     }
@@ -189,62 +188,55 @@ export default function GraficoEstadistico() {
   }
 
   return (
-    <section className="w-[95%] mx-auto space-y-4 my-8">
+    <section className="w-[95%] mx-auto space-y-5 my-8 select-none">
       
-      {/* CABECERA Y FILTROS */}
-      <div className="p-6 rounded-3xl bg-white border border-line shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Cabecera */}
+      <div className="p-5 sm:p-6 rounded-3xl bg-white border border-line shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <span className="text-[10px] font-bold tracking-widest uppercase text-[#0d6b63]">
             PANEL MÉTRICO
           </span>
-          <h2 className="text-2xl font-serif font-bold text-[#1d2939] mt-0.5">
-            Rendimiento y Métricas
+          <h2 className="text-2xl sm:text-3xl font-serif font-bold text-[#1d2939] mt-0.5">
+            Panorama Operativo
           </h2>
         </div>
 
-        {/* SELECTORES DE PERÍODO */}
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Selector Modo (Mensual vs Anual) */}
-          <div className="flex items-center bg-cream/6
-          0 p-1 rounded-2xl border border-line">
+          <div className="flex items-center bg-slate-100 p-1 rounded-2xl border border-line">
             <button
               onClick={() => setModo('mensual')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                modo === 'mensual' ? 'bg-[#0d6b63] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                modo === 'mensual' ? 'bg-[#0d6b63] text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
-              Vista Mensual
+              Diario
             </button>
             <button
               onClick={() => setModo('anual')}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                modo === 'anual' ? 'bg-[#0d6b63] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                modo === 'anual' ? 'bg-[#0d6b63] text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'
               }`}
             >
-              Vista Anual
+              Mensual
             </button>
           </div>
 
-          {/* Selector de Mes (Solo visible en modo mensual) */}
           {modo === 'mensual' && (
             <select
               value={mesSeleccionado}
               onChange={(e) => setMesSeleccionado(Number(e.target.value))}
-              className="rounded-2xl border border-line bg-cream/30 px-3.5 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 cursor-pointer"
+              className="rounded-2xl border border-line bg-white px-3.5 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 cursor-pointer shadow-xs"
             >
               {MESES.map((m, idx) => (
-                <option key={idx} value={idx + 1}>
-                  {m}
-                </option>
+                <option key={idx} value={idx + 1}>{m}</option>
               ))}
             </select>
           )}
 
-          {/* Selector de Año */}
           <select
             value={anioSeleccionado}
             onChange={(e) => setAnioSeleccionado(Number(e.target.value))}
-            className="rounded-2xl border border-line bg-cream/30 px-3.5 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 cursor-pointer"
+            className="rounded-2xl border border-line bg-white px-3.5 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 cursor-pointer shadow-xs"
           >
             <option value={2026}>2026</option>
             <option value={2025}>2025</option>
@@ -254,95 +246,111 @@ export default function GraficoEstadistico() {
           <button
             onClick={cargarEstadisticas}
             disabled={loading}
-            title="Recargar gráfico"
-            className="p-2 rounded-2xl bg-white border border-line text-slate-600 hover:text-[#0d6b63] hover:border-[#0d6b63] transition-all cursor-pointer disabled:opacity-50"
+            title="Recargar métricas"
+            className="p-2 rounded-2xl bg-white border border-line shadow-xs text-slate-500 hover:text-[#0d6b63] hover:border-[#0d6b63]/30 transition-all cursor-pointer disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
 
-      {/* RESUMEN DE TARJETAS DEL PERÍODO */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="p-4 rounded-2xl bg-white border border-line shadow-xs">
-          <span className="text-[10px] font-bold uppercase text-slate-400 block">CLIENTES CREADOS</span>
-          <p className="text-xl font-bold text-slate-900 mt-1">{totalesPeriodo.clientes} Registros</p>
+      {/* Tarjetas Superiores */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="p-4 sm:p-5 rounded-3xl bg-white border border-line shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Nuevos Clientes</span>
+            <div className="p-1.5 rounded-lg bg-blue-50 text-blue-600"><Users className="w-4 h-4" /></div>
+          </div>
+          <p className="text-2xl font-bold text-slate-800">{totalesPeriodo.clientes}</p>
         </div>
 
-        <div className="p-4 rounded-2xl bg-white border border-line shadow-xs">
-          <span className="text-[10px] font-bold uppercase text-slate-400 block">PRÉSTAMOS OTORGADOS</span>
-          <p className="text-xl font-bold text-[#0d6b63] mt-1">{totalesPeriodo.prestamos} Préstamos</p>
+        <div className="p-4 sm:p-5 rounded-3xl bg-white border border-line shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Inversores Alta</span>
+            <div className="p-1.5 rounded-lg bg-amber-50 text-amber-600"><Briefcase className="w-4 h-4" /></div>
+          </div>
+          <p className="text-2xl font-bold text-slate-800">{totalesPeriodo.inversionistas}</p>
         </div>
 
-        <div className="p-4 rounded-2xl bg-white border border-line shadow-xs">
-          <span className="text-[10px] font-bold uppercase text-slate-400 block">INTERÉS GENERADO</span>
-          <p className="text-xl font-bold text-emerald-700 mt-1">
+        <div className="p-4 sm:p-5 rounded-3xl bg-white border border-line shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Préstamos Emitidos</span>
+            <div className="p-1.5 rounded-lg bg-[#0d6b63]/10 text-[#0d6b63]"><CreditCard className="w-4 h-4" /></div>
+          </div>
+          <p className="text-2xl font-bold text-[#0d6b63]">{totalesPeriodo.prestamos}</p>
+        </div>
+
+        <div className="p-4 sm:p-5 rounded-3xl bg-white border border-line shadow-xs flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Rendimiento (Interés)</span>
+            <div className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600"><TrendingUp className="w-4 h-4" /></div>
+          </div>
+          <p className="text-2xl font-bold text-emerald-600">
             +${totalesPeriodo.interes.toLocaleString('es-AR')}
           </p>
         </div>
       </div>
 
-      {/* ÁREA DEL GRÁFICO */}
-      <div className="p-6 rounded-3xl bg-white border border-line shadow-xs h-[420px]">
+      {/* Gráfico */}
+      <div className="p-4 sm:p-6 rounded-3xl bg-white border border-line shadow-xs h-[450px]">
         {loading ? (
-          <div className="h-full flex items-center justify-center text-xs font-medium text-slate-400">
-            Cargando estadísticas...
+          <div className="h-full flex items-center justify-center text-sm font-medium text-slate-400">
+            Procesando métricas operativas...
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart
+            <ComposedChart
               data={datosGrafico}
-              margin={{ top: 20, right: 20, left: 0, bottom: 5 }}
+              margin={{ top: 20, right: 20, left: 10, bottom: 5 }}
             >
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-              <XAxis dataKey="periodo" tickLine={false} style={{ fontSize: '12px', fontWeight: 'bold', fill: '#64748b' }} />
+              <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#e2e8f0" />
               
-              {/* Eje Y primario (para cantidades) */}
-              <YAxis yAxisId="left" orientation="left" stroke="#64748b" tickLine={false} style={{ fontSize: '11px' }} />
+              <XAxis 
+                dataKey="periodo" 
+                tickLine={false} 
+                axisLine={false}
+                tick={{ fontSize: 11, fontWeight: 600, fill: '#64748b' }} 
+                dy={10}
+              />
+              
+              <YAxis 
+                yAxisId="left" 
+                orientation="left" 
+                stroke="#94a3b8" 
+                tickLine={false}
+                axisLine={false}
+                tick={{ fontSize: 11 }} 
+                allowDecimals={false}
+              />
 
-              {/* Eje Y secundario (para montos de interés en dinero) */}
               <YAxis 
                 yAxisId="right" 
                 orientation="right" 
                 stroke="#10b981" 
                 tickLine={false} 
-                style={{ fontSize: '11px' }}
-                tickFormatter={(val) => `$${val.toLocaleString('es-AR')}`}
+                axisLine={false}
+                tick={{ fontSize: 11, fontWeight: 600 }}
+                tickFormatter={(val) => `$${val > 999 ? (val/1000).toFixed(0) + 'k' : val}`}
               />
 
-              <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ paddingTop: '15px', fontSize: '12px', fontWeight: 'bold' }} />
+              <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f8fafc' }} />
+              <Legend wrapperStyle={{ paddingTop: '20px', fontSize: '11px', fontWeight: 'bold', color: '#475569' }} />
 
-              {/* Barra 1: Clientes */}
-              <Bar
-                yAxisId="left"
-                dataKey="clientes"
-                name="Clientes Creados"
-                fill="#1d2939"
-                radius={[6, 6, 0, 0]}
-                maxBarSize={40}
+              <Bar yAxisId="left" dataKey="clientes" name="Clientes Nuevos" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={30} />
+              <Bar yAxisId="left" dataKey="inversionistas" name="Inversores" fill="#f59e0b" radius={[4, 4, 0, 0]} maxBarSize={30} />
+              <Bar yAxisId="left" dataKey="prestamos" name="Préstamos" fill="#0d6b63" radius={[4, 4, 0, 0]} maxBarSize={30} />
+              
+              <Line 
+                yAxisId="right" 
+                type="monotone" 
+                dataKey="interes" 
+                name="Interés Generado" 
+                stroke="#10b981" 
+                strokeWidth={3} 
+                dot={{ r: 4, fill: '#10b981', strokeWidth: 2, stroke: '#fff' }} 
+                activeDot={{ r: 6, strokeWidth: 0 }}
               />
-
-              {/* Barra 2: Préstamos */}
-              <Bar
-                yAxisId="left"
-                dataKey="prestamos"
-                name="Préstamos Otorgados"
-                fill="#0d6b63"
-                radius={[6, 6, 0, 0]}
-                maxBarSize={40}
-              />
-
-              {/* Barra 3: Interés Generado */}
-              <Bar
-                yAxisId="right"
-                dataKey="interes"
-                name="Interés Generado ($)"
-                fill="#10b981"
-                radius={[6, 6, 0, 0]}
-                maxBarSize={40}
-              />
-            </BarChart>
+            </ComposedChart>
           </ResponsiveContainer>
         )}
       </div>
