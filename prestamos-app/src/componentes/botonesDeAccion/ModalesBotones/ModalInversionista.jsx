@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { X, Lock, Mail, UserCheck } from 'lucide-react'
+import { createClient } from '@supabase/supabase-js'
 import { supabase } from '../../../lib/supabaseClient'
 
 export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
@@ -41,72 +42,69 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    setLoading(true)
-    setErrorMsg('')
+ const handleSubmit = async (e) => {
+  e.preventDefault()
+  setLoading(true)
+  setErrorMsg('')
 
-    try {
-      let nuevoUserId = null
+  const emailLimpio = formData.email.trim()
 
-      // 1. SI SE INGRESÓ EMAIL Y PASSWORD -> CREAR USUARIO EN SUPABASE AUTH
-      if (formData.email.trim() && formData.password.trim()) {
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: formData.email.trim(),
-          password: formData.password.trim(),
-          options: {
-            data: {
-              nombre_completo: formData.nombre_completo,
-              rol: 'inversionista'
-            }
-          }
-        })
-
-        if (authError) {
-          throw new Error(`Error de credenciales: ${authError.message}`)
+  try {
+    // 💡 CREAR UN CLIENTE TEMPORAL QUE NO PERSISTA LA SESIÓN
+    // Usa las mismas variables de entorno de tu proyecto
+    const supabaseAuxiliar = createClient(
+      import.meta.env.VITE_SUPABASE_URL,
+      import.meta.env.VITE_SUPABASE_ANON_KEY,
+      {
+        auth: {
+          persistSession: false // 👈 EVITA QUE REEMPLAACE LA SESIÓN DEL OWNER
         }
-
-        nuevoUserId = authData.user?.id
       }
+    )
 
-      // 2. REGISTRAR EL PERFIL EN LA TABLA 'usuarios'
-      const payload = {
-        nombre_completo: formData.nombre_completo,
-        telefono: formData.telefono,
-        provincia_id: formData.provincia_id,
-        capital_disponible: parseFloat(formData.capital_disponible || 0),
-        rol: 'inversionista',
-        activo: true
+    // 1. REGISTRAR EN AUTH CON EL CLIENTE TEMPORAL
+    const { data: authData, error: authError } = await supabaseAuxiliar.auth.signUp({
+      email: emailLimpio,
+      password: formData.password.trim(),
+      options: {
+        data: {
+          nombre_completo: formData.nombre_completo,
+          rol: 'inversionista'
+        }
       }
+    })
 
-      // Si se creó en Auth, vinculamos el UUID
-      if (nuevoUserId) {
-        payload.id = nuevoUserId
-      }
+    if (authError) throw new Error(`Error en autenticación: ${authError.message}`)
 
-      const { error: dbError } = await supabase.from('usuarios').insert([payload])
+    const nuevoUserId = authData.user?.id
+    if (!nuevoUserId) throw new Error('No se pudo obtener el ID del nuevo inversionista.')
 
-      if (dbError) throw dbError
-
-      // Reset del formulario
-      setFormData({
-        nombre_completo: '',
-        telefono: '',
-        email: '',
-        password: '',
-        provincia_id: provincias[0]?.id || '',
-        capital_disponible: '',
-      })
-
-      if (onSuccess) onSuccess()
-      onClose()
-    } catch (err) {
-      console.error('Error al guardar inversionista:', err)
-      setErrorMsg(err.message || 'No se pudo crear el inversionista. Intentalo de nuevo.')
-    } finally {
-      setLoading(false)
+    // 2. INSERTAR EN LA TABLA 'usuarios' USANDO TU CLIENTE PRINCIPAL
+    // (Para conservar los permisos RLS del Owner logueado)
+    const payload = {
+      id: nuevoUserId,
+      nombre_completo: formData.nombre_completo,
+      telefono: formData.telefono,
+      rol: 'inversionista',
+      capital_disponible: Number(formData.capital_inicial || 0),
+      activo: true
     }
+
+    const { error: dbError } = await supabase.from('usuarios').insert([payload])
+
+    if (dbError) throw dbError
+
+    // Éxito: Limpiar formulario y cerrar modal
+    if (onSuccess) onSuccess()
+    onClose()
+
+  } catch (err) {
+    console.error('Error al crear inversionista:', err)
+    setErrorMsg(err.message || 'No se pudo crear el perfil.')
+  } finally {
+    setLoading(false)
   }
+}
 
   if (!isOpen) return null
 

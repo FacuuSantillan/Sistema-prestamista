@@ -1,150 +1,124 @@
 import React, { useState, useEffect } from 'react'
-import { X, Calculator } from 'lucide-react'
+import { X, Landmark, User, ShieldCheck, Calendar, RefreshCw, Calculator } from 'lucide-react'
 import { supabase } from '../../../lib/supabaseClient'
 
-export default function ModalAgregarPrestamo({ isOpen, onClose, onSuccess }) {
-  const [provincias, setProvincias] = useState([])
+export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuarioLogueado }) {
+  const [planes, setPlanes] = useState([])
   const [clientes, setClientes] = useState([])
   const [inversionistas, setInversionistas] = useState([])
-  const [planes, setPlanes] = useState([])
 
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
 
-  const [planSeleccionado, setPlanSeleccionado] = useState('')
-
   const [formData, setFormData] = useState({
+    plan_id: '',
     cliente_id: '',
     inversionista_id: '',
-    provincia_id: '',
-    monto_prestado: '',
-    tasa_interes: '',
-    plazo_cuotas: '1',
-    frecuencia_pago: 'mensual',
-    fecha_inicio: new Date().toISOString().split('T')[0]
+    fecha_inicio: new Date().toISOString().split('T')[0],
+    cantidad_cuotas: 12,
+    frecuencia: 'mensual'
   })
 
+  // 1. Cargar Planes, Clientes e Inversionistas al abrir el modal
   useEffect(() => {
     if (!isOpen) return
 
+    setErrorMsg('')
+    setFormData({
+      plan_id: '',
+      cliente_id: '',
+      inversionista_id: '',
+      fecha_inicio: new Date().toISOString().split('T')[0],
+      cantidad_cuotas: 12,
+      frecuencia: 'mensual'
+    })
+
     async function cargarDatosIniciales() {
       try {
-        setErrorMsg('')
-
-        // 1. Cargar Opciones / Planes de Préstamo de forma flexible
-        const { data: opciones, error: errOpciones } = await supabase
+        // A. Cargar Opciones/Planes de Préstamos
+        const { data: dataPlanes, error: errPlanes } = await supabase
           .from('planes_prestamo')
           .select('*')
+          .order('nombre', { ascending: true })
 
-        if (errOpciones) {
-          console.warn('Error al obtener planes_prestamo:', errOpciones.message)
-        }
+        if (errPlanes) throw errPlanes
+        setPlanes(dataPlanes || [])
 
-        const planesObtenidos = opciones || []
-        setPlanes(planesObtenidos)
-
-        // Asignar primer plan si existe
-        if (planesObtenidos.length > 0) {
-          const primerPlan = planesObtenidos[0]
-          setPlanSeleccionado(primerPlan.id)
-          setFormData((prev) => ({
-            ...prev,
-            monto_prestado: (primerPlan.monto_capital || primerPlan.monto || '').toString(),
-            tasa_interes: (primerPlan.tasa_interes || '').toString()
-          }))
-        } else {
-          setPlanSeleccionado('custom')
-        }
-
-        // 2. Cargar Clientes (Solo Activos o sin definir)
-        const { data: clientesData, error: errClientes } = await supabase
+        // B. Cargar Clientes Activos
+        const { data: dataClientes, error: errClientes } = await supabase
           .from('clientes')
-          .select('*')
+          .select('id, nombre_completo')
+          .eq('activo', true)
           .order('nombre_completo', { ascending: true })
 
-        if (!errClientes && clientesData) {
-          const clientesActivos = clientesData.filter((c) => c.activo !== false)
-          setClientes(clientesActivos)
+        if (errClientes) throw errClientes
+        setClientes(dataClientes || [])
 
-          if (clientesActivos.length > 0) {
-            setFormData((prev) => ({
-              ...prev,
-              cliente_id: clientesActivos[0].id,
-              provincia_id: clientesActivos[0].provincia_id || prev.provincia_id
-            }))
-          }
-        }
-
-        // 3. Cargar Inversionistas (Solo Activos o sin definir)
-        const { data: inversionistasData, error: errInversor } = await supabase
+        // C. Cargar Inversionistas Activos
+        const { data: dataInvs, error: errInvs } = await supabase
           .from('usuarios')
-          .select('*')
+          .select('id, nombre_completo, rol')
+          .eq('rol', 'inversionista')
+          .eq('activo', true)
           .order('nombre_completo', { ascending: true })
 
-        if (!errInversor && inversionistasData) {
-          const inversionistasActivos = inversionistasData.filter((i) => i.activo !== false)
-          setInversionistas(inversionistasActivos)
+        if (errInvs) throw errInvs
+        setInversionistas(dataInvs || [])
+
+        // Valores por defecto
+        if (dataPlanes && dataPlanes.length > 0) {
+          setFormData((prev) => ({ 
+            ...prev, 
+            plan_id: dataPlanes[0].id,
+            cantidad_cuotas: dataPlanes[0].plazo_cuotas || 12,
+            frecuencia: dataPlanes[0].frecuencia_pago || 'mensual'
+          }))
+        }
+        if (dataClientes && dataClientes.length > 0) {
+          setFormData((prev) => ({ ...prev, cliente_id: dataClientes[0].id }))
+        }
+        if (dataInvs && dataInvs.length > 0) {
+          setFormData((prev) => ({ ...prev, inversionista_id: dataInvs[0].id }))
         }
 
       } catch (err) {
-        console.error('Error al cargar datos para el nuevo préstamo:', err)
+        console.error('Error al cargar datos del modal:', err)
+        setErrorMsg('No se pudieron cargar los datos iniciales.')
       }
     }
 
     cargarDatosIniciales()
   }, [isOpen])
 
-  // Manejar el cambio de Opción de préstamo
- const handlePlanChange = (e) => {
-    const value = e.target.value
-    setPlanSeleccionado(value)
+  // 2. Obtener el plan de préstamo actualmente seleccionado
+  const planSeleccionado = planes.find((p) => p.id === formData.plan_id) || planes[0]
 
-    if (value === 'custom') {
-      setFormData((prev) => ({
-        ...prev,
-        monto_prestado: '',
-        tasa_interes: ''
-      }))
-      return
-    }
-
-    const planEncontrado = planes.find((p) => p.id === value)
-    if (planEncontrado) {
-      const valorMonto = planEncontrado.monto_capital || planEncontrado.monto || ''
-      setFormData((prev) => ({
-        ...prev,
-        monto_prestado: valorMonto.toString(),
-        tasa_interes: (planEncontrado.tasa_interes || '').toString()
-      }))
-    }
-  }
-
-  // Al seleccionar un cliente, asociar su provincia
-  const handleClienteChange = (e) => {
-    const selectedId = e.target.value
-    const clienteEncontrado = clientes.find((c) => c.id === selectedId)
-
-    setFormData((prev) => ({
-      ...prev,
-      cliente_id: selectedId,
-      provincia_id: clienteEncontrado?.provincia_id || prev.provincia_id
-    }))
-  }
+  // 3. Cálculos Dinámicos
+  const montoCapital = Number(planSeleccionado?.monto || 0)
+  const tasaInteres = Number(planSeleccionado?.tasa_interes || 0)
+  const montoTotalDevolver = montoCapital + (montoCapital * (tasaInteres / 100))
+  const cantidadCuotas = Math.max(1, Number(formData.cantidad_cuotas || 1))
+  const valorCuota = montoTotalDevolver / cantidadCuotas
 
   const handleChange = (e) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
+
+    // Actualizar cuotas por defecto si cambia el plan
+    if (name === 'plan_id') {
+      const nuevoPlan = planes.find((p) => p.id === value)
+      if (nuevoPlan) {
+        setFormData((prev) => ({
+          ...prev,
+          plan_id: value,
+          cantidad_cuotas: nuevoPlan.plazo_cuotas || 12,
+          frecuencia: nuevoPlan.frecuencia_pago || 'mensual'
+        }))
+      }
+    }
   }
 
-  // Cálculos financieros en tiempo real
-  const monto = parseFloat(formData.monto_prestado || 0)
-  const tasa = parseFloat(formData.tasa_interes || 0)
-  const cuotas = parseInt(formData.plazo_cuotas || 1, 10)
-
-  const montoInteres = (monto * tasa) / 100
-  const montoTotalDevolver = monto + montoInteres
-  const valorCuota = cuotas > 0 ? montoTotalDevolver / cuotas : 0
-
+  // 4. Guardar Préstamo en Supabase
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
@@ -156,34 +130,22 @@ export default function ModalAgregarPrestamo({ isOpen, onClose, onSuccess }) {
       return
     }
 
-    if (isNaN(monto) || monto <= 0) {
-      setErrorMsg('Por favor, ingresá un monto de préstamo válido.')
+    if (!formData.inversionista_id) {
+      setErrorMsg('Debes seleccionar un inversionista.')
       setLoading(false)
       return
     }
 
     try {
-      const inversorSeleccionado = inversionistas.find(
-        (inv) => inv.id === formData.inversionista_id
-      )
-
-      const clienteSeleccionado = clientes.find(
-        (c) => c.id === formData.cliente_id
-      )
-
-      const provinciaIdHeredada =
-        inversorSeleccionado?.provincia_id || clienteSeleccionado?.provincia_id || formData.provincia_id || null
-
+      // ⚠️ PAYLOAD LIMPIO: NO SE ENVÍA 'tasa_interes' (coincide 100% con la tabla 'prestamos')
       const payload = {
         cliente_id: formData.cliente_id,
-        inversionista_id: formData.inversionista_id || null,
-        provincia_id: provinciaIdHeredada,
-        monto_capital: monto,
-        tasa_interes: tasa,
+        inversionista_id: formData.inversionista_id,
+        monto_capital: montoCapital,
         monto_total_pagar: montoTotalDevolver,
+        cantidad_cuotas: cantidadCuotas,
         monto_cuota: valorCuota,
-        cantidad_cuotas: cuotas,
-        frecuencia: formData.frecuencia_pago || 'mensual',
+        frecuencia: formData.frecuencia || 'mensual',
         fecha_inicio: formData.fecha_inicio,
         estado: 'activo'
       }
@@ -196,7 +158,7 @@ export default function ModalAgregarPrestamo({ isOpen, onClose, onSuccess }) {
       onClose()
     } catch (err) {
       console.error('Error al guardar el préstamo:', err)
-      setErrorMsg(err.message || 'No se pudo crear el préstamo.')
+      setErrorMsg(err.message || 'No se pudo guardar el registro del préstamo.')
     } finally {
       setLoading(false)
     }
@@ -205,10 +167,10 @@ export default function ModalAgregarPrestamo({ isOpen, onClose, onSuccess }) {
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs select-none">
       <div className="w-full max-w-xl rounded-3xl bg-cream p-6 sm:p-8 shadow-2xl border border-line max-h-[92vh] overflow-y-auto">
         
-        {/* Cabecera del Modal */}
+        {/* Cabecera */}
         <div className="flex items-start justify-between mb-6">
           <div>
             <span className="text-[11px] font-bold tracking-widest uppercase text-[#0d6b63]">
@@ -230,74 +192,31 @@ export default function ModalAgregarPrestamo({ isOpen, onClose, onSuccess }) {
         {/* Formulario */}
         <form onSubmit={handleSubmit} className="space-y-4">
           
-          {/* 1. Selector de Opciones / Planes Predefinidos */}
-        <div>
-  <label className="block text-xs font-bold uppercase tracking-wider text-[#0d6b63] mb-1">
-    Opción de préstamo
-  </label>
-  <select
-    value={planSeleccionado}
-    onChange={handlePlanChange}
-    required
-    className="w-full rounded-2xl border border-[#0d6b63]/40 bg-white px-4 py-3 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20"
-  >
-    {planes.length === 0 ? (
-      <option value="custom">No hay opciones guardadas (Personalizado)</option>
-    ) : (
-      planes.map((p) => {
-        const titulo = p.nombre || p.nombre_opcion || 'Opción sin nombre'
-        const valorMonto = p.monto_capital || p.monto || 0
-        return (
-          <option key={p.id} value={p.id}>
-            {titulo} — Monto: ${Number(valorMonto).toLocaleString('es-AR')} | Tasa: {p.tasa_interes}%
-          </option>
-        )
-      })
-    )}
-    <option value="custom">Personalizado (Ingresar monto e interés a mano)</option>
-  </select>
-</div>
+          {/* Opción / Plan de Préstamo */}
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
+              OPCIÓN DE PRÉSTAMO
+            </label>
+            <select
+              name="plan_id"
+              required
+              value={formData.plan_id}
+              onChange={handleChange}
+              className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+            >
+              {planes.length === 0 ? (
+                <option value="">No hay opciones creadas</option>
+              ) : (
+                planes.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre} — Monto: ${Number(p.monto).toLocaleString('es-AR')} | Tasa: {p.tasa_interes}%
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
 
-          {/* Si eligió Personalizado, mostramos los inputs de Monto e Interés */}
-          {planSeleccionado === 'custom' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Monto prestado ($)
-                </label>
-                <input
-                  type="number"
-                  name="monto_prestado"
-                  min="1"
-                  step="any"
-                  required
-                  value={formData.monto_prestado}
-                  onChange={handleChange}
-                  placeholder="Ej. 1000000"
-                  className="w-full rounded-xl border border-line bg-white px-3.5 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Tasa de interés (%)
-                </label>
-                <input
-                  type="number"
-                  name="tasa_interes"
-                  min="0"
-                  step="any"
-                  required
-                  value={formData.tasa_interes}
-                  onChange={handleChange}
-                  placeholder="20"
-                  className="w-full rounded-xl border border-line bg-white px-3.5 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* 2. Fila: Cliente y Inversionista Financiador */}
+          {/* Cliente e Inversionista */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -307,11 +226,11 @@ export default function ModalAgregarPrestamo({ isOpen, onClose, onSuccess }) {
                 name="cliente_id"
                 required
                 value={formData.cliente_id}
-                onChange={handleClienteChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                onChange={handleChange}
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               >
                 {clientes.length === 0 ? (
-                  <option value="">No hay clientes activos registrados</option>
+                  <option value="">No hay clientes activos</option>
                 ) : (
                   clientes.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -328,21 +247,25 @@ export default function ModalAgregarPrestamo({ isOpen, onClose, onSuccess }) {
               </label>
               <select
                 name="inversionista_id"
-                value={formData.inversionista_id || ''}
+                required
+                value={formData.inversionista_id}
                 onChange={handleChange}
                 className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               >
-                <option value="">Propio (Administrador)</option>
-                {inversionistas.map((inv) => (
-                  <option key={inv.id} value={inv.id}>
-                    {inv.nombre_completo || inv.nombre}
-                  </option>
-                ))}
+                {inversionistas.length === 0 ? (
+                  <option value="">No hay inversionistas registrados</option>
+                ) : (
+                  inversionistas.map((i) => (
+                    <option key={i.id} value={i.id}>
+                      {i.nombre_completo}
+                    </option>
+                  ))
+                )}
               </select>
             </div>
           </div>
 
-          {/* 3. Fila: Fecha de emisión */}
+          {/* Fecha de Emisión */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
               Fecha de inicio / emisión
@@ -353,11 +276,11 @@ export default function ModalAgregarPrestamo({ isOpen, onClose, onSuccess }) {
               required
               value={formData.fecha_inicio}
               onChange={handleChange}
-              className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+              className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
             />
           </div>
 
-          {/* 4. Fila: Cantidad de Cuotas y Frecuencia de Pago */}
+          {/* Cuotas y Frecuencia */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -365,13 +288,12 @@ export default function ModalAgregarPrestamo({ isOpen, onClose, onSuccess }) {
               </label>
               <input
                 type="number"
-                name="plazo_cuotas"
+                name="cantidad_cuotas"
                 min="1"
                 required
-                value={formData.plazo_cuotas}
+                value={formData.cantidad_cuotas}
                 onChange={handleChange}
-                placeholder="1"
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               />
             </div>
 
@@ -380,10 +302,10 @@ export default function ModalAgregarPrestamo({ isOpen, onClose, onSuccess }) {
                 Frecuencia de pago
               </label>
               <select
-                name="frecuencia_pago"
-                value={formData.frecuencia_pago}
+                name="frecuencia"
+                value={formData.frecuencia}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               >
                 <option value="diario">Diario</option>
                 <option value="semanal">Semanal</option>
@@ -393,33 +315,31 @@ export default function ModalAgregarPrestamo({ isOpen, onClose, onSuccess }) {
             </div>
           </div>
 
-          {/* Simulador dinámico de total y cuotas */}
-          {monto > 0 && (
-            <div className="p-4 rounded-2xl bg-[#0d6b63]/5 border border-[#0d6b63]/20 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-[#0d6b63] text-white">
-                  <Calculator className="w-5 h-5" />
-                </div>
-                <div>
-                  <span className="text-xs text-slate-500 font-medium block">
-                    Total a devolver ({cuotas} {cuotas === 1 ? 'cuota' : 'cuotas'})
-                  </span>
-                  <span className="text-lg font-bold text-[#1d2939]">
-                    ${montoTotalDevolver.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
+          {/* Tarjeta Informativa Verde de Totales */}
+          <div className="p-4 rounded-2xl bg-[#0d6b63]/10 border border-[#0d6b63]/20 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-xl bg-[#0d6b63] text-white">
+                <Calculator className="w-5 h-5" />
               </div>
-
-              <div className="text-right">
+              <div>
                 <span className="text-xs text-slate-500 font-medium block">
-                  Valor cuota
+                  Total a devolver ({cantidadCuotas} cuotas)
                 </span>
-                <span className="text-base font-bold text-[#0d6b63]">
-                  ${valorCuota.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                <span className="text-xl font-bold text-[#0d6b63]">
+                  ${montoTotalDevolver.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                 </span>
               </div>
             </div>
-          )}
+
+            <div className="text-right">
+              <span className="text-xs text-slate-500 font-medium block">
+                Valor cuota
+              </span>
+              <span className="text-lg font-bold text-slate-900">
+                ${valorCuota.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          </div>
 
           {errorMsg && (
             <p className="text-xs text-red-600 font-semibold bg-red-50 p-2.5 rounded-xl border border-red-200">
@@ -427,8 +347,8 @@ export default function ModalAgregarPrestamo({ isOpen, onClose, onSuccess }) {
             </p>
           )}
 
-          {/* Botones */}
-          <div className="flex justify-end items-center gap-3 pt-4">
+          {/* Botones de acción */}
+          <div className="flex justify-end items-center gap-3 pt-3">
             <button
               type="button"
               onClick={onClose}
@@ -438,7 +358,7 @@ export default function ModalAgregarPrestamo({ isOpen, onClose, onSuccess }) {
             </button>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || planes.length === 0}
               className="px-5 py-2.5 rounded-2xl bg-[#0d6b63] text-white font-bold text-sm shadow-sm hover:bg-[#0b5a52] transition-colors disabled:opacity-50 cursor-pointer"
             >
               {loading ? 'Guardando...' : 'Guardar préstamo'}

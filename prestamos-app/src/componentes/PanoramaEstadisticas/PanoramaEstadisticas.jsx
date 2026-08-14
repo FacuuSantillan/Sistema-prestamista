@@ -16,7 +16,11 @@ const MESES = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
 ]
 
-export default function PanoramaOperativo({ onAbrirDirectorioInversionistas }) {
+export default function PanoramaOperativo({ 
+  onAbrirDirectorioInversionistas,   
+  rolUsuario = "admin"
+ }) {
+  
   const [loading, setLoading] = useState(true)
   const fechaActual = new Date()
 

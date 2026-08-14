@@ -1,30 +1,37 @@
 import React, { useState, useEffect } from 'react'
 import { 
-  X, 
-  Search, 
   User, 
   Briefcase, 
-  Receipt, 
-  CreditCard, 
+  X, 
+  Users, 
+  ChevronDown,
   ChevronRight, 
   Power, 
-  Eye, 
   DollarSign, 
   TrendingUp, 
-  Wallet,
-  Users,
-  ChevronDown
+  Wallet, 
+  CreditCard, 
+  Eye, 
+  Search, 
+  Receipt 
 } from 'lucide-react'
-import { supabase } from '../../lib/supabaseClient'
+import { supabase } from '../../lib/supabaseClient' // Ajusta la ruta a tu cliente de Supabase
 
 export default function ModalDirectorio({ 
   isOpen, 
   onClose, 
   tipoInicial = 'clientes', 
   itemInicialId = null, 
-  onVerFichaPrestamo 
+  onVerFichaPrestamo,
+  usuarioLogueado = null, // 👈 Se recibe el objeto del usuario logueado
+  rolUsuario = "admin"
 }) {
-  const [tipo, setTipo] = useState(tipoInicial) // 'clientes' o 'inversionistas'
+  // Determinar rol real
+  const rolReal = usuarioLogueado?.rol || rolUsuario
+  const esInversionista = rolReal === 'inversionista'
+
+  // Si es inversionista, se fuerza la pestaña 'clientes'
+  const [tipo, setTipo] = useState(esInversionista ? 'clientes' : tipoInicial)
   const [busqueda, setBusqueda] = useState('')
   const [lista, setLista] = useState([])
   const [loading, setLoading] = useState(false)
@@ -46,7 +53,7 @@ export default function ModalDirectorio({
   // Resetear estados al abrir/cerrar modal
   useEffect(() => {
     if (isOpen) {
-      setTipo(tipoInicial)
+      setTipo(esInversionista ? 'clientes' : tipoInicial)
       setBusqueda('')
       setItemSeleccionado(null)
       setInversionistaSeleccionado(null)
@@ -57,9 +64,9 @@ export default function ModalDirectorio({
       setPagos([])
       setClientesRelacionados([])
     }
-  }, [isOpen, tipoInicial])
+  }, [isOpen, tipoInicial, esInversionista])
 
-  // Cargar lista según el tipo seleccionado
+  // Cargar lista según el tipo seleccionado y el Rol del Usuario
   useEffect(() => {
     if (!isOpen) return
     let isMounted = true
@@ -69,18 +76,57 @@ export default function ModalDirectorio({
 
       try {
         if (tipo === 'clientes') {
-          // VISTA CLIENTES: Cargar lista general de clientes
-          let query = supabase.from('clientes').select('*').order('nombre_completo', { ascending: true })
+          let listaData = []
 
-          if (busqueda.trim() !== '') {
-            query = query.ilike('nombre_completo', `%${busqueda}%`)
+          // 🔴 CASO 1: SI ES INVERSIONISTA -> Filtrar solo sus clientes asignados
+          if (esInversionista && usuarioLogueado?.id) {
+            const invId = usuarioLogueado.id
+
+            // 1. Obtener préstamos de este inversionista
+            const { data: prestamosInversor, error: errP } = await supabase
+              .from('prestamos')
+              .select('cliente_id')
+              .eq('inversionista_id', invId)
+
+            if (errP) console.warn('Aviso al cargar préstamos del inversor:', errP.message)
+
+            const clienteIds = [...new Set((prestamosInversor || []).map((p) => p.cliente_id))].filter(Boolean)
+
+            // 2. Traer clientes relacionados a sus préstamos o asignados directamente
+            let queryInversor = supabase.from('clientes').select('*')
+
+            if (clienteIds.length > 0) {
+              queryInversor = queryInversor.or(`inversionista_id.eq.${invId},id.in.(${clienteIds.join(',')})`)
+            } else {
+              queryInversor = queryInversor.eq('inversionista_id', invId)
+            }
+
+            queryInversor = queryInversor.order('nombre_completo', { ascending: true })
+
+            if (busqueda.trim() !== '') {
+              queryInversor = queryInversor.ilike('nombre_completo', `%${busqueda}%`)
+            }
+
+            const { data: clientesData, error: errC } = await queryInversor
+            if (errC) throw errC
+
+            listaData = clientesData || []
+          } 
+          // 🟢 CASO 2: OWNER / ADMIN -> Traer todos los clientes
+          else {
+            let query = supabase.from('clientes').select('*').order('nombre_completo', { ascending: true })
+
+            if (busqueda.trim() !== '') {
+              query = query.ilike('nombre_completo', `%${busqueda}%`)
+            }
+
+            const { data, error } = await query
+            if (error) throw error
+
+            listaData = data || []
           }
 
-          const { data, error } = await query
-          if (error) throw error
-
           if (isMounted) {
-            const listaData = data || []
             setLista(listaData)
 
             if (listaData.length > 0) {
@@ -96,10 +142,11 @@ export default function ModalDirectorio({
             }
           }
         } else {
-          // VISTA INVERSIONISTAS
+          // VISTA INVERSIONISTAS (Solo Owner / Admin)
           const { data: invs, error: errInv } = await supabase
             .from('usuarios')
             .select('*')
+            .eq('rol', 'inversionista')
             .order('nombre_completo', { ascending: true })
 
           if (errInv) throw errInv
@@ -125,11 +172,11 @@ export default function ModalDirectorio({
     fetchData()
 
     return () => { isMounted = false }
-  }, [tipo, busqueda, isOpen])
+  }, [tipo, busqueda, isOpen, esInversionista, usuarioLogueado?.id])
 
-  // Cargar préstamos y clientes del inversionista seleccionado
+  // Cargar préstamos y clientes del inversionista seleccionado (Solo para Owner/Admin)
   useEffect(() => {
-    if (tipo !== 'inversionistas' || !inversionistaSeleccionado) return
+    if (tipo !== 'inversionistas' || !inversionistaSeleccionado || esInversionista) return
 
     let isMounted = true
 
@@ -190,7 +237,7 @@ export default function ModalDirectorio({
     cargarClientesDelInversionista()
 
     return () => { isMounted = false }
-  }, [inversionistaSeleccionado, tipo, busqueda])
+  }, [inversionistaSeleccionado, tipo, busqueda, esInversionista])
 
   // Cargar detalle individual de cliente
   const cargarDetallePerfil = async (item, tipoActual) => {
@@ -312,7 +359,7 @@ export default function ModalDirectorio({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs select-none">
       <div className="w-full max-w-5xl rounded-3xl bg-cream p-6 sm:p-8 shadow-2xl border border-line h-[88vh] flex flex-col overflow-hidden">
         
         {/* CABECERA */}
@@ -322,7 +369,9 @@ export default function ModalDirectorio({
               DIRECTORIO DE BÚSQUEDA
             </span>
             <h2 className="text-2xl sm:text-3xl font-serif font-bold text-[#1d2939]">
-              {tipo === 'clientes' ? 'Perfil de Clientes' : 'Perfil de Inversionistas'}
+              {esInversionista 
+                ? 'Mis Clientes Asociados' 
+                : (tipo === 'clientes' ? 'Perfil de Clientes' : 'Perfil de Inversionistas')}
             </h2>
           </div>
 
@@ -337,95 +386,97 @@ export default function ModalDirectorio({
               <span>Clientes</span>
             </button>
 
-            <button
-              onClick={() => setTipo('inversionistas')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                tipo === 'inversionistas' ? 'bg-[#0d6b63] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Briefcase className="w-4 h-4" />
-              <span>Inversionistas</span>
-            </button>
+            {!esInversionista && (
+              <button
+                onClick={() => setTipo('inversionistas')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  tipo === 'inversionistas' ? 'bg-[#0d6b63] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Briefcase className="w-4 h-4" />
+                <span>Inversionistas</span>
+              </button>
+            )}
 
             <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 rounded-xl cursor-pointer">
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
-{/* 🔴 VISTA 1: INVERSIONISTAS (FILTRADO POR ROL STRICTO) */}
-{tipo === 'inversionistas' ? (
-  <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pt-4 flex-1 overflow-hidden">
-    
-    {/* IZQUIERDA (md:col-span-8): Ficha del Inversionista, Métricas y Préstamos */}
-    <div className="md:col-span-8 flex flex-col h-full overflow-y-auto pr-1 space-y-5">
-      
-      {/* Selector de Inversionista */}
-      <div className="p-4 rounded-2xl bg-white border border-line shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 relative">
-        <div>
-          <span className="text-[10px] font-bold uppercase tracking-wider text-[#0d6b63]">
-            INVERSIONISTA SELECCIONADO
-          </span>
-          <h3 className="text-xl font-serif font-bold text-slate-900 mt-0.5">
-            {inversionistaSeleccionado?.nombre_completo || inversionistaSeleccionado?.nombre || 'Seleccioná un inversionista'}
-          </h3>
-        </div>
 
-        <div className="relative">
-          {/* Obtenemos solo los perfiles con rol === 'inversionista' */}
-          {(() => {
-            const soloInversionistas = listaInversionistas.filter(
-              (inv) => inv.rol === 'inversionista'
-            );
+        {/* 🔴 VISTA 1: INVERSIONISTAS (FILTRADO POR ROL STRICTO - SOLO OWNER / ADMIN) */}
+        {tipo === 'inversionistas' && !esInversionista ? (
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pt-4 flex-1 overflow-hidden">
+            
+            {/* IZQUIERDA (md:col-span-8): Ficha del Inversionista, Métricas y Préstamos */}
+            <div className="md:col-span-8 flex flex-col h-full overflow-y-auto pr-1 space-y-5">
+              
+              {/* Selector de Inversionista */}
+              <div className="p-4 rounded-2xl bg-white border border-line shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 relative">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#0d6b63]">
+                    INVERSIONISTA SELECCIONADO
+                  </span>
+                  <h3 className="text-xl font-serif font-bold text-slate-900 mt-0.5">
+                    {inversionistaSeleccionado?.nombre_completo || inversionistaSeleccionado?.nombre || 'Seleccioná un inversionista'}
+                  </h3>
+                </div>
 
-            return (
-              <>
-                <button
-                  onClick={() => setMenuInversionistasAbierto(!menuInversionistasAbierto)}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0d6b63] text-white text-xs font-bold shadow-xs hover:bg-[#0b5a52] transition-colors cursor-pointer"
-                >
-                  <Users className="w-4 h-4" />
-                  <span>Ver Listado Inversionistas ({soloInversionistas.length})</span>
-                  <ChevronDown className="w-4 h-4 ml-1" />
-                </button>
+                <div className="relative">
+                  {(() => {
+                    const soloInversionistas = listaInversionistas.filter(
+                      (inv) => inv.rol === 'inversionista'
+                    );
 
-                {menuInversionistasAbierto && (
-                  <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl border border-line shadow-2xl z-50 max-h-64 overflow-y-auto p-2">
-                    <span className="text-[10px] font-bold uppercase text-slate-400 px-3 py-1 block border-b border-line mb-1">
-                      Seleccionar Inversionista
-                    </span>
-                    
-                    {soloInversionistas.length === 0 ? (
-                      <div className="p-3 text-xs text-slate-400 text-center font-medium">
-                        No hay inversionistas registrados
-                      </div>
-                    ) : (
-                      soloInversionistas.map((inv) => (
-                        <div
-                          key={inv.id}
-                          onClick={() => {
-                            setInversionistaSeleccionado(inv)
-                            setMenuInversionistasAbierto(false)
-                          }}
-                          className={`p-2.5 rounded-xl text-xs font-bold cursor-pointer transition-colors flex items-center justify-between ${
-                            inversionistaSeleccionado?.id === inv.id
-                              ? 'bg-[#0d6b63]/10 text-[#0d6b63]'
-                              : 'text-slate-700 hover:bg-slate-50'
-                          }`}
+                    return (
+                      <>
+                        <button
+                          onClick={() => setMenuInversionistasAbierto(!menuInversionistasAbierto)}
+                          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0d6b63] text-white text-xs font-bold shadow-xs hover:bg-[#0b5a52] transition-colors cursor-pointer"
                         >
-                          <span>{inv.nombre_completo || inv.nombre}</span>
-                          <span className="text-[10px] font-normal text-slate-400">
-                            Tel: {inv.telefono || 's/d'}
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-              </>
-            );
-          })()}
-        </div>
-      </div>
+                          <Users className="w-4 h-4" />
+                          <span>Ver Listado Inversionistas ({soloInversionistas.length})</span>
+                          <ChevronDown className="w-4 h-4 ml-1" />
+                        </button>
+
+                        {menuInversionistasAbierto && (
+                          <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl border border-line shadow-2xl z-50 max-h-64 overflow-y-auto p-2">
+                            <span className="text-[10px] font-bold uppercase text-slate-400 px-3 py-1 block border-b border-line mb-1">
+                              Seleccionar Inversionista
+                            </span>
+                            
+                            {soloInversionistas.length === 0 ? (
+                              <div className="p-3 text-xs text-slate-400 text-center font-medium">
+                                No hay inversionistas registrados
+                              </div>
+                            ) : (
+                              soloInversionistas.map((inv) => (
+                                <div
+                                  key={inv.id}
+                                  onClick={() => {
+                                    setInversionistaSeleccionado(inv)
+                                    setMenuInversionistasAbierto(false)
+                                  }}
+                                  className={`p-2.5 rounded-xl text-xs font-bold cursor-pointer transition-colors flex items-center justify-between ${
+                                    inversionistaSeleccionado?.id === inv.id
+                                      ? 'bg-[#0d6b63]/10 text-[#0d6b63]'
+                                      : 'text-slate-700 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <span>{inv.nombre_completo || inv.nombre}</span>
+                                  <span className="text-[10px] font-normal text-slate-400">
+                                    Tel: {inv.telefono || 's/d'}
+                                  </span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
 
               {/* Ficha General */}
               {inversionistaSeleccionado && (
@@ -454,18 +505,20 @@ export default function ModalDirectorio({
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => handleToggleEstado(inversionistaSeleccionado, 'usuarios')}
-                      disabled={actionLoading}
-                      className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
-                        (inversionistaSeleccionado.activo ?? true)
-                          ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
-                          : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                      }`}
-                    >
-                      <Power className="w-3.5 h-3.5" />
-                      <span>{(inversionistaSeleccionado.activo ?? true) ? 'Deshabilitar' : 'Habilitar'}</span>
-                    </button>
+                    {!esInversionista && (
+                      <button
+                        onClick={() => handleToggleEstado(inversionistaSeleccionado, 'usuarios')}
+                        disabled={actionLoading}
+                        className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                          (inversionistaSeleccionado.activo ?? true)
+                            ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                            : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                        }`}
+                      >
+                        <Power className="w-3.5 h-3.5" />
+                        <span>{(inversionistaSeleccionado.activo ?? true) ? 'Deshabilitar' : 'Habilitar'}</span>
+                      </button>
+                    )}
                   </div>
 
                   {/* Métricas Financieras */}
@@ -553,7 +606,7 @@ export default function ModalDirectorio({
               )}
             </div>
 
-            {/* 🔴 DERECHA (md:col-span-4): LISTADO DE CLIENTES FINANCIADOS / ASOCIADOS CON BUSCADOR */}
+            {/* DERECHA (md:col-span-4): LISTADO DE CLIENTES FINANCIADOS / ASOCIADOS */}
             <div className="md:col-span-4 flex flex-col h-full border-l border-line/60 pl-0 md:pl-4 overflow-hidden">
               <div className="relative mb-3 shrink-0">
                 <Search className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" />
@@ -614,7 +667,7 @@ export default function ModalDirectorio({
 
           </div>
         ) : (
-          /* VISTA 2: CLIENTES INDIVIDUALES (LAYOUT CLÁSICO DE CLIENTES) */
+          /* VISTA 2: CLIENTES INDIVIDUALES (ACCESIBLE POR TODOS) */
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pt-4 flex-1 overflow-hidden">
             
             {/* Lista Lateral de Clientes */}
@@ -634,7 +687,9 @@ export default function ModalDirectorio({
                 {loading ? (
                   <p className="text-xs text-slate-400 text-center py-6">Cargando lista...</p>
                 ) : lista.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-6">No hay clientes registrados.</p>
+                  <p className="text-xs text-slate-400 text-center py-6">
+                    {esInversionista ? 'No posees clientes asociados.' : 'No hay clientes registrados.'}
+                  </p>
                 ) : (
                   lista.map((item) => {
                     const estaActivo = item.activo ?? true
@@ -714,18 +769,20 @@ export default function ModalDirectorio({
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => handleToggleEstado(itemSeleccionado, 'clientes')}
-                      disabled={actionLoading}
-                      className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
-                        (itemSeleccionado.activo ?? true)
-                          ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
-                          : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                      }`}
-                    >
-                      <Power className="w-3.5 h-3.5" />
-                      <span>{(itemSeleccionado.activo ?? true) ? 'Deshabilitar' : 'Habilitar'}</span>
-                    </button>
+                    {!esInversionista && (
+                      <button
+                        onClick={() => handleToggleEstado(itemSeleccionado, 'clientes')}
+                        disabled={actionLoading}
+                        className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                          (itemSeleccionado.activo ?? true)
+                            ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                            : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                        }`}
+                      >
+                        <Power className="w-3.5 h-3.5" />
+                        <span>{(itemSeleccionado.activo ?? true) ? 'Deshabilitar' : 'Habilitar'}</span>
+                      </button>
+                    )}
                   </div>
 
                   {/* Préstamos del Cliente */}

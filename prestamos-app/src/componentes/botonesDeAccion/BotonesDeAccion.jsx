@@ -1,7 +1,14 @@
 import React from "react";
-import { Landmark, UserPlus, Users, HandCoins, ReceiptText, Briefcase, ShieldPlus} from "lucide-react";
+import { 
+  Users, 
+  Briefcase, 
+  ShieldPlus, 
+  UserPlus, 
+  HandCoins, 
+  ReceiptText, 
+  BadgePercent 
+} from "lucide-react";
 import FiltroProvincia from "../barraSuperior/FiltroPorProvincia";
-
 
 export default function BotonesDeAccion({ 
   onOpenModal, 
@@ -9,91 +16,122 @@ export default function BotonesDeAccion({
   onOpenInversionistas, 
   provinciaSeleccionada, 
   setProvinciaSeleccionada, 
-  provincias = []  }) 
-  {
+  provincias = [],
+  rolUsuario = "admin" // 'owner' | 'admin' | 'inversionista'
+}) {
+
+  // 1. CONFIGURACIÓN DE NAVEGACIÓN Y CONSULTA
+  const VISTAS = [
+    { 
+      id: "clientes",
+      label: "Ver Clientes", 
+      icon: Users, 
+      onClick: onOpenClientes, 
+      roles: ["owner", "admin", "inversionista"] 
+    },
+    { 
+      id: "inversionistas",
+      label: "Ver Inversionistas", 
+      icon: Briefcase, 
+      onClick: onOpenInversionistas, 
+      roles: ["owner", "admin"] 
+    },
+  ];
+
+  // 2. CONFIGURACIÓN DE ALTAS Y MODALES
+  const ACCIONES = [
+    // 🔴 Jerarquía de Negocio (Exclusivos del Owner)
+    { 
+      id: "admin", 
+      label: "Agregar admin", 
+      icon: ShieldPlus, 
+      roles: ["owner"] 
+    },
+    { 
+      id: "inversionista", 
+      label: "Agregar inversor", 
+      icon: UserPlus, 
+      roles: ["owner"] 
+    },
+
+    // 🟢 Operativa Diaria (Disponibles para Admin y Owner)
+    { 
+      id: "cliente", 
+      label: "Agregar cliente", 
+      icon: Users, 
+      roles: ["owner", "admin"] 
+    },
+    { 
+      id: "opcionPrestamo", 
+      label: "Agregar opción de préstamo", 
+      icon: HandCoins, 
+      roles: ["owner", "admin"] 
+    },
+    { 
+      id: "prestamo", 
+      label: "Agregar préstamo", 
+      icon: BadgePercent, 
+      roles: ["owner", "admin"] 
+    },
+    { 
+      id: "pago", 
+      label: "Agregar cobro/pago", 
+      icon: ReceiptText, 
+      roles: ["owner", "admin", "inversionista"] 
+    },
+  ];
 
   return (
-        <div> 
-<div className="mt-5 flex flex-wrap justify-center items-center gap-2.5">
-       
+    <div className="mt-5 w-full space-y-4 select-none">
+      
+      {provincias.length > 0 && (
+        <div className="flex justify-center mb-2">
+          <FiltroProvincia
+            provinciaSeleccionada={provinciaSeleccionada}
+            setProvinciaSeleccionada={setProvinciaSeleccionada}
+            provincias={provincias}
+          />
+        </div>
+      )}
 
-        {/* Botón Buscar / Perfiles de Clientes */}
-        <button
-          onClick={onOpenClientes}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#0d6b63] border border-[#0d6b63]/20 text-[#fcfcfc] font-bold text-xs hover:bg-[#0d6b63]/20 transition-all shadow-xs cursor-pointer"
-        >
-          <Users className="w-4 h-4 text-[#f9f9f9]" />
-          <span>Ver Clientes</span>
-        </button>
-
-        {/* Botón Buscar / Perfiles de Inversionistas */}
-        <button
-          onClick={onOpenInversionistas}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#0d6b63] border border-[#0d6b63]/20 text-[#fcfcfc] font-bold text-xs hover:bg-[#0d6b63]/20 transition-all shadow-xs cursor-pointer"
-        >
-          <Briefcase className="w-4 h-4 text-[#f9f9f9]" />
-          <span>Ver Inversionistas</span>
-        </button>
-
+      {/* SECCIÓN 1: VISTAS Y NAVEGACIÓN */}
+      <div className="flex flex-wrap justify-center items-center gap-2.5">
+        {VISTAS
+          .filter((btn) => btn.roles.includes(rolUsuario))
+          .map((btn) => {
+            const Icon = btn.icon;
+            return (
+              <button
+                key={btn.id}
+                onClick={btn.onClick}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#0d6b63] border border-[#0d6b63]/20 text-[#fcfcfc] font-bold text-xs hover:bg-[#0b5a52] transition-all shadow-xs cursor-pointer"
+              >
+                <Icon className="w-4 h-4 text-[#f9f9f9]" />
+                <span>{btn.label}</span>
+              </button>
+            );
+          })}
       </div>
 
-     
+      {/* SECCIÓN 2: ALTAS Y MODALES */}
+      <div className="flex flex-wrap items-center justify-center gap-2.5">
+        {ACCIONES
+          .filter((btn) => btn.roles.includes(rolUsuario))
+          .map((btn) => {
+            const Icon = btn.icon;
+            return (
+              <button
+                key={btn.id}
+                onClick={() => onOpenModal && onOpenModal(btn.id)}
+                className="flex items-center border border-[#0d6b63]/20 gap-2 bg-[#0d6b63]/10 text-[#0d6b63] px-3.5 py-2.5 rounded-xl shadow-xs hover:bg-[#0d6b63]/20 transition-colors duration-200 font-medium text-xs sm:text-sm cursor-pointer"
+              >
+                <Icon className="w-4 h-4" />
+                <span>{btn.label}</span>
+              </button>
+            );
+          })}
+      </div>
 
-    <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
-
-       <button 
-               onClick={() => onOpenModal && onOpenModal('admin')}
-               className="flex items-center border border-[#0d6b63]/20 gap-2 bg-[#0d6b63]/10 text-[#0d6b63] px-3.5 py-2.5 rounded-xl shadow-sm hover:bg-[#0d6b63]/20 transition-colors duration-200 font-medium text-xs sm:text-sm"
-             >
-               <ShieldPlus className="w-4 h-4" />
-               <span>Agregar admin</span>
-             </button>
-
-             {/* Agregar Inversor */}
-             <button 
-               onClick={() => onOpenModal && onOpenModal('inversionista')}
-               className="flex items-center border border-[#0d6b63]/20 gap-2 bg-[#0d6b63]/10 text-[#0d6b63] px-3.5 py-2.5 rounded-xl shadow-sm hover:bg-[#0d6b63]/20 transition-colors duration-200 font-medium text-xs sm:text-sm"
-             >
-               <UserPlus className="w-4 h-4" />
-               <span>Agregar inversor</span>
-             </button>
-     
-             {/* Agregar Cliente */}
-             <button 
-               onClick={() => onOpenModal && onOpenModal('cliente')}
-               className="flex items-center border border-[#0d6b63]/20 gap-2 bg-[#0d6b63]/10 text-[#0d6b63] px-3.5 py-2.5 rounded-xl shadow-sm hover:bg-[#0d6b63]/20 transition-colors duration-200 font-medium text-xs sm:text-sm"
-             >
-               <Users className="w-4 h-4" />
-               <span>Agregar cliente</span>
-             </button>
-     
-             {/* Agregar Préstamo */}
-             <button 
-               onClick={() => onOpenModal && onOpenModal('opcionPrestamo')}
-               className="flex items-center border border-[#0d6b63]/20 gap-2 bg-[#0d6b63]/10 text-[#0d6b63] px-3.5 py-2.5 rounded-xl shadow-sm hover:bg-[#0d6b63]/20 transition-colors duration-200 font-medium text-xs sm:text-sm"
-             >
-               <HandCoins className="w-4 h-4" />
-               <span>Agregar opcion de préstamo</span>
-             </button>
-     
-             {/* Agregar Cobro/Pago */}
-             <button 
-               onClick={() => onOpenModal && onOpenModal('pago')}
-               className="flex items-center border border-[#0d6b63]/20 gap-2 bg-[#0d6b63]/10 text-[#0d6b63] px-3.5 py-2.5 rounded-xl shadow-sm hover:bg-[#0d6b63]/20 transition-colors duration-200 font-medium text-xs sm:text-sm"
-             >
-               <ReceiptText className="w-4 h-4" />
-               <span>Agregar cobro/pago</span>
-             </button>
-     
-             <button 
-               onClick={() => onOpenModal && onOpenModal('prestamo')}
-               className="flex items-center border border-[#0d6b63]/20 gap-2 bg-[#0d6b63]/10 text-[#0d6b63] px-3.5 py-2.5 rounded-xl shadow-sm hover:bg-[#0d6b63]/20 transition-colors duration-200 font-medium text-xs sm:text-sm"
-             >
-               <ReceiptText className="w-4 h-4" />
-               <span>Agregar prestamo</span>
-             </button>
-           </div>
-           </div>
-
+    </div>
   );
-};
+}

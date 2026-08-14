@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { X, Receipt, AlertCircle } from 'lucide-react'
 import { supabase } from '../../../lib/supabaseClient'
 
-export default function ModalPago({ isOpen, onClose, onSuccess }) {
+export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado = null }) {
   const [clientes, setClientes] = useState([])
   const [prestamosCliente, setPrestamosCliente] = useState([])
   
@@ -31,7 +31,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
     esParcial: false
   })
 
-  // 1. Cargar lista de clientes al abrir el modal y resetear campos
+  // 1. Cargar clientes filtrados según rol al abrir el modal
   useEffect(() => {
     if (isOpen) {
       setFormData({
@@ -44,43 +44,107 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
       })
       setErrorMsg('')
 
-      async function loadClientes() {
-        try {
-          const { data, error } = await supabase
-            .from('clientes')
-            .select('id, nombre_completo')
-            .order('nombre_completo', { ascending: true })
+      cargarClientesDeInversionista(usuarioLogueado)
+    }
+  }, [isOpen, usuarioLogueado])
 
-          if (error) throw error
+  // Función para cargar sólo clientes con préstamos ACTIVOS del inversionista logueado
+  const cargarClientesDeInversionista = async (usuario) => {
+    try {
+      const esInversionista = usuario?.rol === 'inversionista'
 
-          if (data && data.length > 0) {
-            setClientes(data)
-            setFormData((prev) => ({ ...prev, cliente_id: data[0].id }))
-          } else {
-            setClientes([])
-            setPrestamosCliente([])
-          }
-        } catch (err) {
-          console.error('Error al cargar clientes:', err)
+      if (esInversionista && usuario?.id) {
+        const invId = usuario.id
+
+        // Buscar préstamos ACTIVOS de este inversionista
+        const { data: prestamosActivos, error: errP } = await supabase
+          .from('prestamos')
+          .select('cliente_id')
+          .eq('inversionista_id', invId)
+          .neq('estado', 'finalizado')
+
+        if (errP) throw errP
+
+        // Extraer IDs únicos de los clientes
+        const clienteIdsActivos = [...new Set((prestamosActivos || []).map((p) => p.cliente_id))].filter(Boolean)
+
+        if (clienteIdsActivos.length === 0) {
+          setClientes([])
+          setFormData((prev) => ({ ...prev, cliente_id: '' }))
+          return
+        }
+
+        // Obtener datos de los clientes filtrados
+        const { data: dataClientes, error: errC } = await supabase
+          .from('clientes')
+          .select('id, nombre_completo')
+          .in('id', clienteIdsActivos)
+          .order('nombre_completo', { ascending: true })
+
+        if (errC) throw errC
+
+        const listaClientes = dataClientes || []
+        setClientes(listaClientes)
+
+        if (listaClientes.length > 0) {
+          setFormData((prev) => ({ ...prev, cliente_id: listaClientes[0].id }))
+        }
+      } else {
+        // Para Admin / Owner: Cargar todos los clientes con préstamos activos
+        const { data: prestamosActivos, error: errP } = await supabase
+          .from('prestamos')
+          .select('cliente_id')
+          .neq('estado', 'finalizado')
+
+        if (errP) throw errP
+
+        const clienteIdsActivos = [...new Set((prestamosActivos || []).map((p) => p.cliente_id))].filter(Boolean)
+
+        if (clienteIdsActivos.length === 0) {
+          setClientes([])
+          return
+        }
+
+        const { data: dataClientes, error: errC } = await supabase
+          .from('clientes')
+          .select('id, nombre_completo')
+          .in('id', clienteIdsActivos)
+          .order('nombre_completo', { ascending: true })
+
+        if (errC) throw errC
+
+        const listaClientes = dataClientes || []
+        setClientes(listaClientes)
+
+        if (listaClientes.length > 0) {
+          setFormData((prev) => ({ ...prev, cliente_id: listaClientes[0].id }))
         }
       }
-      loadClientes()
+    } catch (err) {
+      console.error('Error al cargar clientes con préstamos activos:', err)
+      setClientes([])
     }
-  }, [isOpen])
+  }
 
-  // 2. Cargar préstamos activos al cambiar el cliente_id
+  // 2. Cargar préstamos activos del cliente seleccionado (y pertenecientes al inversionista)
   useEffect(() => {
     if (!formData.cliente_id || !isOpen) return
 
     async function loadPrestamos() {
       setFetchingPrestamos(true)
       try {
-        const { data, error } = await supabase
+        let query = supabase
           .from('prestamos')
           .select('*')
           .eq('cliente_id', formData.cliente_id)
-          .eq('estado', 'activo')
-          .order('fecha_inicio', { ascending: false })
+          .neq('estado', 'finalizado')
+
+        // Si es inversionista, se restringe la busqueda estricta por su ID
+        if (usuarioLogueado?.rol === 'inversionista' && usuarioLogueado?.id) {
+          query = query.eq('inversionista_id', usuarioLogueado.id)
+        }
+
+        const { data, error } = await query.order('fecha_inicio', { ascending: false })
 
         if (error) throw error
 
@@ -93,14 +157,14 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
           resetDetalleCobro()
         }
       } catch (err) {
-        console.error('Error al cargar préstamos:', err)
+        console.error('Error al cargar préstamos del cliente:', err)
       } finally {
         setFetchingPrestamos(false)
       }
     }
 
     loadPrestamos()
-  }, [formData.cliente_id, isOpen])
+  }, [formData.cliente_id, isOpen, usuarioLogueado])
 
   // 3. Calcular cuotas y saldos al cambiar el préstamo seleccionado
   useEffect(() => {
@@ -155,7 +219,6 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
           esParcial
         })
 
-        // Autocompletar monto sugerido en el input
         setFormData((prev) => ({
           ...prev,
           monto_pago: pendienteCuotaActual > 0 ? pendienteCuotaActual.toFixed(2) : '0.00'
@@ -187,7 +250,6 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
     setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
-  // Guardar Pago y Verificar Finalización del Préstamo
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
@@ -209,7 +271,6 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
     const prestamoActual = prestamosCliente.find((p) => p.id === formData.prestamo_id)
 
     try {
-      // 1. Registrar el cobro en la tabla pagos
       const payload = {
         prestamo_id: formData.prestamo_id,
         cliente_id: formData.cliente_id,
@@ -223,7 +284,6 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
       const { error: errorPago } = await supabase.from('pagos').insert([payload])
       if (errorPago) throw errorPago
 
-      // 2. Consultar directamente a la DB la suma real de TODOS los cobros de este préstamo
       const { data: todosLosPagos, error: errSum } = await supabase
         .from('pagos')
         .select('monto_cobrado')
@@ -238,7 +298,6 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
 
       const montoTotalPagar = Number(prestamoActual?.monto_total_pagar || prestamoActual?.monto_total || 0)
 
-      // 3. Si el acumulado real cubre el monto total a devolver (tolerancia de centavos), pasa a 'finalizado'
       if (totalAcumuladoDB >= (montoTotalPagar - 0.50)) {
         const { error: errorPrestamo } = await supabase
           .from('prestamos')
@@ -286,7 +345,6 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
         {/* Formulario */}
         <form onSubmit={handleSubmit} className="space-y-4">
           
-          {/* Tipo de movimiento */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
               Tipo de movimiento
@@ -300,7 +358,6 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
             </select>
           </div>
 
-          {/* Fila 1: Cliente y Préstamo Activo */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -314,13 +371,16 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
                 className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               >
                 {clientes.length === 0 ? (
-                  <option value="">No hay clientes cargados</option>
+                  <option value="">No tenés clientes con préstamos activos</option>
                 ) : (
-                  clientes.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.nombre_completo}
-                    </option>
-                  ))
+                  <>
+                    <option value="">-- Seleccioná un cliente --</option>
+                    {clientes.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nombre_completo}
+                      </option>
+                    ))}
+                  </>
                 )}
               </select>
             </div>
@@ -332,21 +392,26 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
               <select
                 name="prestamo_id"
                 required
-                disabled={fetchingPrestamos || prestamosCliente.length === 0}
+                disabled={fetchingPrestamos || prestamosCliente.length === 0 || !formData.cliente_id}
                 value={formData.prestamo_id}
                 onChange={handleChange}
                 className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] disabled:opacity-50"
               >
                 {fetchingPrestamos ? (
                   <option value="">Buscando préstamos...</option>
+                ) : !formData.cliente_id ? (
+                  <option value="">Primero seleccioná un cliente</option>
                 ) : prestamosCliente.length === 0 ? (
-                  <option value="">Sin préstamos activos</option>
+                  <option value="">Sin préstamos activos para este cliente</option>
                 ) : (
-                  prestamosCliente.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      Préstamo ${Number(p.monto_capital).toLocaleString('es-AR')} ({p.frecuencia || 'mensual'})
-                    </option>
-                  ))
+                  <>
+                    <option value="">-- Seleccioná el préstamo --</option>
+                    {prestamosCliente.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        Préstamo ${Number(p.monto_capital).toLocaleString('es-AR')} ({p.frecuencia || 'mensual'})
+                      </option>
+                    ))}
+                  </>
                 )}
               </select>
             </div>
@@ -387,7 +452,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
             </div>
           )}
 
-          {/* Fila 2: Monto a cobrar y Método de Pago */}
+          {/* Monto y Método de Pago */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -423,7 +488,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess }) {
             </div>
           </div>
 
-          {/* Fila 3: Fecha de Pago y Observaciones */}
+          {/* Fecha de Pago y Observaciones */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">

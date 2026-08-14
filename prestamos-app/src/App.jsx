@@ -149,7 +149,6 @@ const redimensionarVentana = async (esDashboard) => {
   }
 
   const esAdmin = usuario.rol === 'admin' || usuario.rol === 'owner'
-  console.log(usuario)
 
   return (
     <div className="min-h-screen bg-paper pb-12">
@@ -173,54 +172,67 @@ const redimensionarVentana = async (esDashboard) => {
         </button>
       </div>
 
-      <BarraSuperior />
+      <BarraSuperior 
+      rolUsuario={usuario?.rol}/>
 
-      <BotonesDeAccion 
+      <BotonesDeAccion
+      rolUsuario={usuario?.rol} 
         onOpenModal={(tipo) => setModalActivo(tipo)}
         onOpenClientes={handleOpenDirectorioClientes}
         onOpenInversionistas={handleOpenDirectorioInversionistas}
+        rolUsuario={usuario?.rol}
       />
 
       <ModalInversionista
+      rolUsuario={usuario?.rol}
         isOpen={modalActivo === 'inversionista'}
         onClose={() => setModalActivo(null)}
         onSuccess={handleRefreshData}
+
       />
 
       <ModalAdmin
+      rolUsuario={usuario?.rol}
         isOpen={modalActivo === 'admin'}
         onClose={() => setModalActivo(null)}
         onSuccess={handleRefreshData}
       />
 
       <ModalCliente
+      rolUsuario={usuario?.rol}
         isOpen={modalActivo === 'cliente'}
         onClose={() => setModalActivo(null)}
         onSuccess={handleRefreshData}
       />
 
       <ModalAgregarOpcionPrestamo
+      rolUsuario={usuario?.rol}
         isOpen={modalActivo === 'opcionPrestamo'}
         onClose={() => setModalActivo(null)}
         onSuccess={handleRefreshData}
       />
 
       <ModalAgregarPrestamo
+      rolUsuario={usuario?.rol}
         isOpen={modalActivo === 'prestamo'}
         onClose={() => setModalActivo(null)}
         onSuccess={handleRefreshData}
       />
 
       <ModalPago
+      rolUsuario={usuario?.rol}
         isOpen={modalActivo === 'pago'}
         onClose={() => setModalActivo(null)}
         onSuccess={handleRefreshData}
+        usuarioLogueado={usuario} 
       />
 
       <ModalDirectorio
+        rolUsuario={usuario?.rol}
         isOpen={modalActivo === 'directorio'}
         tipoInicial={tipoDirectorio}
         itemInicialId={perfilSeleccionadoId}
+        usuarioLogueado={usuario}
         onClose={() => {
           setModalActivo(null)
           setPerfilSeleccionadoId(null)
@@ -229,6 +241,7 @@ const redimensionarVentana = async (esDashboard) => {
       />
 
       <ModalFichaPrestamo
+      rolUsuario={usuario?.rol}
         isOpen={modalFichaAbierta}
         onClose={() => {
           setModalFichaAbierta(false)
@@ -237,27 +250,38 @@ const redimensionarVentana = async (esDashboard) => {
         prestamo={prestamoFicha}
       />
 
-      <PanoramaEstadisticas 
-        onAbrirDirectorioInversionistas={handleOpenDirectorioInversionistas}
-      />
 
-      <GraficoEstadistico />
+        {(usuario?.rol === 'owner' || usuario?.rol === 'admin') && (
+          <>
+          <PanoramaEstadisticas 
+            onAbrirDirectorioInversionistas={handleOpenDirectorioInversionistas}
+            rolUsuario={usuario?.rol}
+            />
 
-      <RegistrosRecientes
-        onVerFichaPrestamo={handleAbrirFichaPrestamo}
-        onAbrirCliente={(cliente) => {
-          setTipoDirectorio('clientes')
-          setPerfilSeleccionadoId(cliente?.id || null)
-          setModalActivo('directorio')
-        }}
+          
+            <GraficoEstadistico/>
 
-        onAbrirInversionista={(inversionista) => {
-          setTipoDirectorio('inversionistas')
-          setPerfilSeleccionadoId(inversionista?.id || null)
-          setModalActivo('directorio')
-        }}
+          </>
+          
+        )}
+  {(usuario?.rol === 'owner') && (
+<RegistrosRecientes
+rolUsuario={usuario?.rol}
+onVerFichaPrestamo={handleAbrirFichaPrestamo}
+onAbrirCliente={(cliente) => {
+setTipoDirectorio('clientes')
+setPerfilSeleccionadoId(cliente?.id || null)
+setModalActivo('directorio')
+}}
 
-      />
+onAbrirInversionista={(inversionista) => {
+setTipoDirectorio('inversionistas')
+setPerfilSeleccionadoId(inversionista?.id || null)
+setModalActivo('directorio')
+}}
+/>
+
+  )}
     </div>
   )
 }
