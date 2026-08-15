@@ -47,6 +47,7 @@ export default function PanoramaOperativo({
         .select('id, capital_disponible, activo, rol')
         .eq('activo', true)
         .eq('rol', 'inversionista') // 🔴 FILTRO CLAVE: Excluye 'admin', 'owner' y 'cliente'
+        
 
       if (errInv) console.warn('Aviso al cargar inversionistas activos:', errInv.message)
 
