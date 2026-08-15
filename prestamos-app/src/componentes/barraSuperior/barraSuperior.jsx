@@ -1,5 +1,5 @@
 import React from "react";
-import { Landmark, Users, Briefcase } from "lucide-react";
+import { Landmark, Users, Briefcase, Wallet } from "lucide-react";
 import FiltroProvincia from "./FiltroPorProvincia";
 
 export default function BarraSuperior({ 
@@ -12,14 +12,12 @@ export default function BarraSuperior({
       {/* LADO IZQUIERDO: Título e Ícono */}
       <div className="mt-5 flex items-center gap-3.5">
         <div className="w-12 h-12 rounded-2xl bg-[#0d6b63] text-white flex items-center justify-center shrink-0 shadow-sm">
-          <Landmark className="w-6 h-6" />
+          <Wallet className="w-6 h-6" />
         </div>
 
         <div>
-          <h2 className="text-xs font-bold font-sans tracking-[0.18em] uppercase text-[#0d6b63]">
-            GESTIÓN MULTIPLATAFORMA
-          </h2>
-          <h1 className="text-3xl sm:text-4xl font-bold font-serif text-[#1d2939] leading-none mt-1">
+        
+          <h1 className="text-3xl sm:text-4xl font-bold font-serif text-[#1d2939] leading-none mt-0">
             Panel de Control
           </h1>
         </div>

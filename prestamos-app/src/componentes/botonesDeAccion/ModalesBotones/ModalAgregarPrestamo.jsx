@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
-import { X, Landmark, User, ShieldCheck, Calendar, RefreshCw, Calculator } from 'lucide-react'
+import { X, Calculator } from 'lucide-react'
 import { supabase } from '../../../lib/supabaseClient'
 
-export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuarioLogueado }) {
+export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuarioLogueado = null }) {
   const [planes, setPlanes] = useState([])
   const [clientes, setClientes] = useState([])
   const [inversionistas, setInversionistas] = useState([])
@@ -137,10 +137,17 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
     }
 
     try {
-      // ⚠️ PAYLOAD LIMPIO: NO SE ENVÍA 'tasa_interes' (coincide 100% con la tabla 'prestamos')
+      // 💡 Obtener el ID del usuario que crea el préstamo
+      let usuarioId = usuarioLogueado?.id
+      if (!usuarioId) {
+        const { data: authUserResp } = await supabase.auth.getUser()
+        usuarioId = authUserResp?.user?.id || null
+      }
+
       const payload = {
         cliente_id: formData.cliente_id,
         inversionista_id: formData.inversionista_id,
+        creado_por: usuarioId, // 👈 Registra al usuario responsable sin errores
         monto_capital: montoCapital,
         monto_total_pagar: montoTotalDevolver,
         cantidad_cuotas: cantidadCuotas,
@@ -202,7 +209,7 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
               required
               value={formData.plan_id}
               onChange={handleChange}
-              className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+              className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
             >
               {planes.length === 0 ? (
                 <option value="">No hay opciones creadas</option>
@@ -227,7 +234,7 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
                 required
                 value={formData.cliente_id}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
               >
                 {clientes.length === 0 ? (
                   <option value="">No hay clientes activos</option>
@@ -250,7 +257,7 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
                 required
                 value={formData.inversionista_id}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
               >
                 {inversionistas.length === 0 ? (
                   <option value="">No hay inversionistas registrados</option>
@@ -305,7 +312,7 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
                 name="frecuencia"
                 value={formData.frecuencia}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
               >
                 <option value="diario">Diario</option>
                 <option value="semanal">Semanal</option>
@@ -315,7 +322,7 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
             </div>
           </div>
 
-          {/* Tarjeta Informativa Verde de Totales */}
+          {/* Tarjeta Informativa de Totales */}
           <div className="p-4 rounded-2xl bg-[#0d6b63]/10 border border-[#0d6b63]/20 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-3 rounded-xl bg-[#0d6b63] text-white">

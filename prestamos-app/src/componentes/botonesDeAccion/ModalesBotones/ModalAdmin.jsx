@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { X, Lock, Mail, ShieldCheck, User } from 'lucide-react'
+import { createClient } from '@supabase/supabase-js' // 👈 1. Importar createClient
 import { supabase } from '../../../lib/supabaseClient'
 
 export default function ModalAdmin({ isOpen, onClose, onSuccess }) {
@@ -26,8 +27,19 @@ export default function ModalAdmin({ isOpen, onClose, onSuccess }) {
     const emailLimpio = formData.email.trim()
 
     try {
-      // 1. CREAR EL USUARIO EN SUPABASE AUTH
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      // 💡 2. CREAMOS EL CLIENTE TEMPORAL QUE NO PERSISTA LA SESIÓN
+      const supabaseAuxiliar = createClient(
+        import.meta.env.VITE_SUPABASE_URL,
+        import.meta.env.VITE_SUPABASE_ANON_KEY,
+        {
+          auth: {
+            persistSession: false // 👈 EVITA QUE SE SOBREESCRIBA TU SESIÓN
+          }
+        }
+      )
+
+      // 1. CREAR EL USUARIO EN SUPABASE AUTH (Usando el cliente auxiliar)
+      const { data: authData, error: authError } = await supabaseAuxiliar.auth.signUp({
         email: emailLimpio,
         password: formData.password.trim(),
         options: {
@@ -48,11 +60,12 @@ export default function ModalAdmin({ isOpen, onClose, onSuccess }) {
         throw new Error('No se pudo obtener el identificador único del administrador.')
       }
 
-      // 2. INSERTAR EL PERFIL CON ROL 'admin' EN LA TABLA 'usuarios'
+      // 2. INSERTAR EL PERFIL CON ROL 'admin' EN LA TABLA 'usuarios' (Usando tu cliente principal)
       const payload = {
         id: nuevoUserId,
         nombre_completo: formData.nombre_completo,
         telefono: formData.telefono,
+        creado_por: user.id, // 👈 Aquí se guarda quién ejecutó la acción
         rol: 'admin',
         activo: true,
         capital_disponible: 0

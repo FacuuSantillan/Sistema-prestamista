@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { supabase } from '../../../lib/supabaseClient'
 
-export default function ModalCliente({ isOpen, onClose, onSuccess }) {
+export default function ModalCliente({ isOpen, onClose, onSuccess, usuarioLogueado = null }) {
   const [inversionistas, setInversionistas] = useState([])
   const [provincias, setProvincias] = useState([])
   const [loading, setLoading] = useState(false)
@@ -42,7 +42,6 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
         }
 
         // 2. Cargar Inversionistas desde la tabla 'usuarios'
-        // Si usás una etiqueta específica en la columna 'rol', la consulta traerá los que correspondan o todos los activos
         const { data: invData, error: errInv } = await supabase
           .from('usuarios')
           .select('id, nombre_completo, rol, activo')
@@ -51,7 +50,6 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
         if (errInv) {
           console.error('Error al consultar la tabla usuarios:', errInv.message)
         } else {
-          // Si guardás el rol como 'inversionista', podés filtrar por rol, o traer todos los usuarios cuyo 'activo' no sea false
           const inversionistasValidos = (invData || []).filter((u) => {
             const esActivo = u.activo !== false
             const esInversor = u.rol ? u.rol.toLowerCase() === 'inversionista' : true
@@ -96,14 +94,21 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
     }
 
     try {
-     const payload = {
-  nombre_completo: formData.nombre_completo.trim(),
-  telefono: formData.telefono.trim() || null,
-  // 🔴 Solo si eligió 'inversionista' enviamos el id, si no enviamos null explícito
-  inversionista_id: formData.origen === 'inversionista' && formData.inversionista_id ? formData.inversionista_id : null,
-  provincia_id: formData.provincia_id || null,
-  activo: true
-}
+      // 💡 1. OBTENER EL USUARIO AUTENTICADO DE FORMA SEGURA
+      let usuarioId = usuarioLogueado?.id
+      if (!usuarioId) {
+        const { data: authUserResp } = await supabase.auth.getUser()
+        usuarioId = authUserResp?.user?.id || null
+      }
+
+      const payload = {
+        nombre_completo: formData.nombre_completo.trim(),
+        telefono: formData.telefono.trim() || null,
+        creado_por: usuarioId, // 👈 Ahora utiliza usuarioId correctamente definido
+        inversionista_id: formData.origen === 'inversionista' && formData.inversionista_id ? formData.inversionista_id : null,
+        provincia_id: formData.provincia_id || null,
+        activo: true
+      }
 
       const { error } = await supabase.from('clientes').insert([payload])
 
@@ -122,7 +127,7 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs select-none">
       <div className="w-full max-w-xl rounded-3xl bg-cream p-6 sm:p-8 shadow-2xl border border-line">
         
         {/* Cabecera */}
@@ -201,7 +206,7 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
                 name="origen"
                 value={formData.origen}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
               >
                 <option value="propio">Propio (Administrador)</option>
                 <option value="inversionista">Inversionista asignado</option>
@@ -217,7 +222,7 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
                   name="provincia_id"
                   value={formData.provincia_id}
                   onChange={handleChange}
-                  className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                  className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
                 >
                   <option value="">Sin especificar</option>
                   {provincias.map((prov) => (
@@ -230,7 +235,7 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
             )}
           </div>
 
-          {/* Inversionista Asignado (Solo si origen === 'inversionista') */}
+          {/* Inversionista Asignado */}
           {formData.origen === 'inversionista' && (
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -241,7 +246,7 @@ export default function ModalCliente({ isOpen, onClose, onSuccess }) {
                 required={formData.origen === 'inversionista'}
                 value={formData.inversionista_id}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
               >
                 {inversionistas.length === 0 ? (
                   <option value="">No hay inversionistas registrados en la tabla usuarios</option>

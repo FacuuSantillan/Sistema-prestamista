@@ -72,7 +72,8 @@ export default function ModalCrearPlan({ isOpen, onClose, onSuccess }) {
       const payload = {
         nombre: formData.nombre,
         monto: parseFloat(formData.monto),
-        tasa_interes: parseFloat(formData.tasa_interes)
+        tasa_interes: parseFloat(formData.tasa_interes),
+
       }
 
       if (editingId) {

@@ -29,6 +29,7 @@ export default function ModalCrearPlan({ isOpen, onClose, onSuccess }) {
         monto: parseFloat(formData.monto),
         tasa_interes: parseFloat(formData.tasa_interes),
         plazo_cuotas: parseInt(formData.plazo_cuotas, 10),
+        creado_por: user.id, // 👈 Aquí se guarda quién ejecutó la acción
         frecuencia_pago: formData.frecuencia_pago
       }
 

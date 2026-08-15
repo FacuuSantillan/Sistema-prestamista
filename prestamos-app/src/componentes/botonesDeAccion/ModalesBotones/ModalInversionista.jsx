@@ -43,73 +43,94 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
   }
 
  const handleSubmit = async (e) => {
-  e.preventDefault()
-  setLoading(true)
-  setErrorMsg('')
+    e.preventDefault()
+    setLoading(true)
+    setErrorMsg('')
 
-  const emailLimpio = formData.email.trim()
+    const emailLimpio = formData.email.trim()
 
-  try {
-    // 💡 CREAR UN CLIENTE TEMPORAL QUE NO PERSISTA LA SESIÓN
-    // Usa las mismas variables de entorno de tu proyecto
-    const supabaseAuxiliar = createClient(
-      import.meta.env.VITE_SUPABASE_URL,
-      import.meta.env.VITE_SUPABASE_ANON_KEY,
-      {
-        auth: {
-          persistSession: false // 👈 EVITA QUE REEMPLAACE LA SESIÓN DEL OWNER
+    try {
+      // 💡 1. OBTENER PRIMERO EL USUARIO AUTENTICADO QUE ESTÁ HACIENDO EL ALTA
+      const { data: authUserResp } = await supabase.auth.getUser()
+      const creadorId = authUserResp?.user?.id || null
+
+      // 💡 2. CLIENTE AUXILIAR EN MEMORIA (NO PERSISTE NI DESLOGUEA)
+      const supabaseAuxiliar = createClient(
+        import.meta.env.VITE_SUPABASE_URL,
+        import.meta.env.VITE_SUPABASE_ANON_KEY,
+        {
+          auth: {
+            autoRefreshToken: false,
+            persistSession: false,
+            detectSessionInUrl: false,
+            storage: {
+              getItem: () => null,
+              setItem: () => {},
+              removeItem: () => {}
+            }
+          }
         }
-      }
-    )
+      )
 
-    // 1. REGISTRAR EN AUTH CON EL CLIENTE TEMPORAL
-    const { data: authData, error: authError } = await supabaseAuxiliar.auth.signUp({
-      email: emailLimpio,
-      password: formData.password.trim(),
-      options: {
-        data: {
-          nombre_completo: formData.nombre_completo,
-          rol: 'inversionista'
+      // 3. REGISTRAR EN SUPABASE AUTH
+      const { data: authData, error: authError } = await supabaseAuxiliar.auth.signUp({
+        email: emailLimpio,
+        password: formData.password.trim(),
+        options: {
+          data: {
+            nombre_completo: formData.nombre_completo,
+            rol: 'inversionista'
+          }
         }
+      })
+
+      if (authError) throw new Error(`Error en autenticación: ${authError.message}`)
+
+      const nuevoUserId = authData.user?.id
+      if (!nuevoUserId) throw new Error('No se pudo obtener el ID del nuevo inversionista.')
+
+      // 4. INSERTAR EN LA TABLA 'usuarios'
+      const payload = {
+        id: nuevoUserId,
+        nombre_completo: formData.nombre_completo,
+        telefono: formData.telefono,
+        email: emailLimpio,
+        rol: 'inversionista',
+        creado_por: creadorId, // 👈 Ahora usa 'creadorId' (nunca más 'user is not defined')
+        provincia_id: formData.provincia_id || null,
+        capital_disponible: Number(formData.capital_disponible || 0),
+        activo: true
       }
-    })
 
-    if (authError) throw new Error(`Error en autenticación: ${authError.message}`)
+      const { error: dbError } = await supabase.from('usuarios').insert([payload])
 
-    const nuevoUserId = authData.user?.id
-    if (!nuevoUserId) throw new Error('No se pudo obtener el ID del nuevo inversionista.')
+      if (dbError) throw dbError
 
-    // 2. INSERTAR EN LA TABLA 'usuarios' USANDO TU CLIENTE PRINCIPAL
-    // (Para conservar los permisos RLS del Owner logueado)
-    const payload = {
-      id: nuevoUserId,
-      nombre_completo: formData.nombre_completo,
-      telefono: formData.telefono,
-      rol: 'inversionista',
-      capital_disponible: Number(formData.capital_inicial || 0),
-      activo: true
+      // Éxito: Reset y cierre
+      setFormData({
+        nombre_completo: '',
+        telefono: '',
+        email: '',
+        password: '',
+        provincia_id: provincias.length > 0 ? provincias[0].id : '',
+        capital_disponible: ''
+      })
+
+      if (onSuccess) onSuccess()
+      onClose()
+
+    } catch (err) {
+      console.error('Error al crear inversionista:', err)
+      setErrorMsg(err.message || 'No se pudo crear el perfil.')
+    } finally {
+      setLoading(false)
     }
-
-    const { error: dbError } = await supabase.from('usuarios').insert([payload])
-
-    if (dbError) throw dbError
-
-    // Éxito: Limpiar formulario y cerrar modal
-    if (onSuccess) onSuccess()
-    onClose()
-
-  } catch (err) {
-    console.error('Error al crear inversionista:', err)
-    setErrorMsg(err.message || 'No se pudo crear el perfil.')
-  } finally {
-    setLoading(false)
   }
-}
 
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs select-none">
       <div className="w-full max-w-xl rounded-3xl bg-cream p-6 sm:p-8 shadow-2xl border border-line">
         
         {/* Cabecera del Modal */}
@@ -125,7 +146,7 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
           <button
             onClick={onClose}
             type="button"
-            className="rounded-xl p-2 text-slate-400 hover:bg-black/5 hover:text-slate-700 transition-colors"
+            className="rounded-xl p-2 text-slate-400 hover:bg-black/5 hover:text-slate-700 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -134,7 +155,6 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
         {/* Formulario */}
         <form onSubmit={handleSubmit} className="space-y-4">
           
-          {/* Fila 1: Nombre completo y Teléfono */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -166,7 +186,6 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
             </div>
           </div>
 
-          {/* SECCIÓN ACCESO AL SISTEMA (Email y Password) */}
           <div className="p-4 rounded-2xl bg-white/60 border border-line/80 space-y-3">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#0d6b63]">
               <UserCheck className="w-4 h-4" />
@@ -183,6 +202,7 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
                   <input
                     type="email"
                     name="email"
+                    required
                     value={formData.email}
                     onChange={handleChange}
                     placeholder="inversor@correo.com"
@@ -200,6 +220,7 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
                   <input
                     type="password"
                     name="password"
+                    required
                     value={formData.password}
                     onChange={handleChange}
                     placeholder="••••••••"
@@ -210,7 +231,6 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
             </div>
           </div>
 
-          {/* Fila 2: Provincia asignada y Capital disponible */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -221,7 +241,7 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
                 required
                 value={formData.provincia_id}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
               >
                 {provincias.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -255,19 +275,18 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
             </p>
           )}
 
-          {/* Botones de acción */}
           <div className="flex justify-end items-center gap-3 pt-4">
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2.5 rounded-2xl border border-line bg-white font-bold text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+              className="px-5 py-2.5 rounded-2xl border border-line bg-white font-bold text-sm text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="px-5 py-2.5 rounded-2xl bg-[#0d6b63] text-white font-bold text-sm shadow-sm hover:bg-[#0b5a52] transition-colors disabled:opacity-50"
+              className="px-5 py-2.5 rounded-2xl bg-[#0d6b63] text-white font-bold text-sm shadow-sm hover:bg-[#0b5a52] transition-colors disabled:opacity-50 cursor-pointer"
             >
               {loading ? 'Guardando...' : 'Crear Inversionista'}
             </button>

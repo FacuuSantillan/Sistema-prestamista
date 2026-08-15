@@ -7,7 +7,7 @@ import {
   RefreshCw,
   Users,
   ChevronRight,
-  Calendar
+  Wallet
 } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 
@@ -19,106 +19,137 @@ const MESES = [
 export default function PanoramaOperativo({ 
   onAbrirDirectorioInversionistas,   
   rolUsuario = "admin"
- }) {
-  
+}) {
   const [loading, setLoading] = useState(true)
   const fechaActual = new Date()
 
-  // Estados de Filtro de Período
-  const [filtroPeriodo, setFiltroPeriodo] = useState('historico') // 'historico' | 'mes'
-  const [mesSeleccionado, setMesSeleccionado] = useState(fechaActual.getMonth() + 1) // 1 - 12
+  // Inicia por defecto en 'mes' y en el mes/año corriente
+  const [filtroPeriodo, setFiltroPeriodo] = useState('mes') 
+  const [mesSeleccionado, setMesSeleccionado] = useState(fechaActual.getMonth() + 1)
   const [anioSeleccionado, setAnioSeleccionado] = useState(fechaActual.getFullYear())
 
   const [metricas, setMetricas] = useState({
-    capitalTotalDisponible: 0, // Suma de capital_disponible SOLO de inversionistas HABILITADOS
-    interesGenerado: 0,        // Ganancia total por intereses
-    totalCobrado: 0,           // Dinero ingresado por pagos
-    balancePendiente: 0,       // Saldo restante por cobrar
-    inversoresActivos: 0       // Cantidad de inversionistas activos
+    capitalTotalInvertido: 0, // Fondo total disponible en billeteras de inversores
+    capitalPrestado: 0,        // Total colocado en préstamos
+    interesGenerado: 0,       // Interés REAL cobrado en el período
+    totalCobrado: 0,          // Total recaudado
+    balancePendiente: 0,      // Saldo pendiente total por cobrar
+    inversoresActivos: 0
   })
 
-  // Función para cargar/recalcular métricas
+  // Comparador robusto de fechas (YYYY-MM)
+  const coincideMes = (fechaStr, anio, mes) => {
+    if (!fechaStr) return false
+    const match = String(fechaStr).match(/^(\d{4})-(\d{2})/)
+    if (!match) return false
+    const y = parseInt(match[1], 10)
+    const m = parseInt(match[2], 10)
+    return y === Number(anio) && m === Number(mes)
+  }
+
   const cargarMetricas = async () => {
     setLoading(true)
     try {
-      // 1. Obtener SOLO usuarios con rol 'inversionista' y estado ACTIVOS (activo = true)
+      // 1. Inversionistas ACTIVOS (Caja total)
       const { data: inversionistas, error: errInv } = await supabase
         .from('usuarios')
         .select('id, capital_disponible, activo, rol')
         .eq('activo', true)
-        .eq('rol', 'inversionista') // 🔴 FILTRO CLAVE: Excluye 'admin', 'owner' y 'cliente'
-        
+        .eq('rol', 'inversionista')
 
-      if (errInv) console.warn('Aviso al cargar inversionistas activos:', errInv.message)
+      if (errInv) console.error('Error al cargar inversionistas:', errInv.message)
+      const listaInversores = inversionistas || []
 
-      const listaInversoresHabilitados = inversionistas || []
-
-      // Capital total disponible de la caja exclusiva de inversores
-      const capitalTotalDisponible = listaInversoresHabilitados.reduce(
+      const capitalTotalInvertido = listaInversores.reduce(
         (acc, inv) => acc + Number(inv.capital_disponible || 0), 0
       )
-      
-      // Cantidad exacta de perfiles con rol 'inversionista'
-      const inversoresActivos = listaInversoresHabilitados.length
+      const inversoresActivos = listaInversores.length
 
-      // 2. Obtener todos los préstamos
+      // 2. Préstamos
       const { data: prestamos, error: errP } = await supabase
         .from('prestamos')
-        .select('*')
+        .select('id, created_at, fecha_inicio, monto_capital, monto_total_pagar')
 
-      if (errP) console.warn('Aviso al cargar préstamos:', errP.message)
+      if (errP) console.error('Error al cargar préstamos:', errP.message)
 
-      // 3. Obtener todos los pagos
+      // 3. Pagos
       const { data: pagos, error: errPagos } = await supabase
         .from('pagos')
-        .select('*')
+        .select('prestamo_id, fecha_pago, created_at, monto_cobrado')
 
-      if (errPagos) console.warn('Aviso al cargar pagos:', errPagos.message)
+      if (errPagos) console.error('Error al cargar pagos:', errPagos.message)
 
-      let prestamosList = prestamos || []
-      let pagosList = pagos || []
+      const todosLosPrestamos = prestamos || []
+      const todosLosPagos = pagos || []
 
-      // 🔴 FILTRADO POR FECHA (SI SE ELIGIÓ UN MES ESPECÍFICO)
+      // 💡 MAPA DE PRÉSTAMOS: Calcula el ratio de ganancia (interés / total) por cada préstamo
+      const mapaPrestamos = {}
+      todosLosPrestamos.forEach((p) => {
+        const capital = Number(p.monto_capital || 0)
+        const totalPagar = Number(p.monto_total_pagar || 0)
+        const interesTotal = Math.max(0, totalPagar - capital)
+
+        mapaPrestamos[p.id] = {
+          ratioInteres: totalPagar > 0 ? (interesTotal / totalPagar) : 0,
+          capital,
+          totalPagar
+        }
+      })
+
+      // Filtrado según período
+      let prestamosFiltrados = todosLosPrestamos
+      let pagosFiltrados = todosLosPagos
+
       if (filtroPeriodo === 'mes') {
-        prestamosList = prestamosList.filter((p) => {
-          const fechaStr = p.created_at || p.fecha_inicio
-          if (!fechaStr) return false
-          const f = new Date(fechaStr)
-          return f.getFullYear() === Number(anioSeleccionado) && (f.getMonth() + 1) === Number(mesSeleccionado)
-        })
+        prestamosFiltrados = prestamosFiltrados.filter((p) =>
+          coincideMes(p.fecha_inicio || p.created_at, anioSeleccionado, mesSeleccionado)
+        )
 
-        pagosList = pagosList.filter((p) => {
-          const fechaStr = p.created_at || p.fecha_pago
-          if (!fechaStr) return false
-          const f = new Date(fechaStr)
-          return f.getFullYear() === Number(anioSeleccionado) && (f.getMonth() + 1) === Number(mesSeleccionado)
-        })
+        pagosFiltrados = pagosFiltrados.filter((p) =>
+          coincideMes(p.fecha_pago || p.created_at, anioSeleccionado, mesSeleccionado)
+        )
       }
 
-      // --- CÁLCULOS GENERALES SEGÚN EL FILTRO ---
-      const totalPrestado = prestamosList.reduce((acc, p) => acc + Number(p.monto_capital || p.monto || 0), 0)
-      const totalADevolver = prestamosList.reduce((acc, p) => acc + Number(p.monto_total_pagar || p.monto_total || 0), 0)
-      const interesGenerado = Math.max(0, totalADevolver - totalPrestado)
+      // --- CÁLCULOS FINANCIEROS REALES ---
+      // A. Capital prestado en el período
+      const capitalPrestado = prestamosFiltrados.reduce((acc, p) => acc + Number(p.monto_capital || 0), 0)
 
-      const totalCobrado = pagosList.reduce((acc, p) => acc + Number(p.monto_cobrado || p.monto_pago || 0), 0)
-      const balancePendiente = Math.max(0, totalADevolver - totalCobrado)
+      // B. Total cobrado en el período
+      const totalCobrado = pagosFiltrados.reduce((acc, p) => acc + Number(p.monto_cobrado || 0), 0)
+
+      // C. Interés REAL generado (solo sobre lo efectivamente cobrado)
+      const interesGeneradoReal = pagosFiltrados.reduce((acc, cobro) => {
+        const prestamoRef = mapaPrestamos[cobro.prestamo_id]
+        const ratio = prestamoRef ? prestamoRef.ratioInteres : 0
+        return acc + (Number(cobro.monto_cobrado || 0) * ratio)
+      }, 0)
+
+      // D. Saldo pendiente de cobro en cartera (Total prestado a devolver - Total cobrado)
+      const totalADevolverHistorico = todosLosPrestamos.reduce((acc, p) => acc + Number(p.monto_total_pagar || 0), 0)
+      const totalCobradoHistorico = todosLosPagos.reduce((acc, p) => acc + Number(p.monto_cobrado || 0), 0)
+      
+      // En modo mes calcula lo pendiente de ese mes; en histórico, la cartera activa global
+      const totalADevolverPeriodo = prestamosFiltrados.reduce((acc, p) => acc + Number(p.monto_total_pagar || 0), 0)
+      const balancePendiente = filtroPeriodo === 'mes'
+        ? Math.max(0, totalADevolverPeriodo - totalCobrado)
+        : Math.max(0, totalADevolverHistorico - totalCobradoHistorico)
 
       setMetricas({
-        capitalTotalDisponible,
-        interesGenerado,
+        capitalTotalInvertido,
+        capitalPrestado,
+        interesGenerado: interesGeneradoReal,
         totalCobrado,
         balancePendiente,
         inversoresActivos
       })
 
     } catch (err) {
-      console.error('Error al cargar métricas del panorama operativo:', err)
+      console.error('Error al cargar métricas del panorama:', err)
     } finally {
       setLoading(false)
     }
   }
 
-  // Carga inicial y suscripción a cambios en tiempo real
   useEffect(() => {
     cargarMetricas()
 
@@ -135,14 +166,11 @@ export default function PanoramaOperativo({
   }, [filtroPeriodo, mesSeleccionado, anioSeleccionado])
 
   return (
-    <section className="w-[95%] mx-auto space-y-4 my-6">
+    <section className="w-[95%] mx-auto space-y-5 my-6 select-none">
       
       {/* Cabecera y Selector de Período */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <span className="text-[10px] font-bold tracking-widest uppercase text-[#0d6b63]">
-            ESTADÍSTICAS GENERALES
-          </span>
           <h2 className="text-2xl sm:text-3xl font-serif font-bold text-[#1d2939] mt-0.5">
             PANORAMA OPERATIVO
           </h2>
@@ -153,29 +181,29 @@ export default function PanoramaOperativo({
           <div className="flex items-center bg-white p-1 rounded-2xl border border-line shadow-xs">
             <button
               onClick={() => setFiltroPeriodo('historico')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                filtroPeriodo === 'historico' ? 'bg-[#0d6b63] text-white' : 'text-slate-600 hover:text-slate-900'
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                filtroPeriodo === 'historico' ? 'bg-[#0d6b63] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               Histórico
             </button>
             <button
               onClick={() => setFiltroPeriodo('mes')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                filtroPeriodo === 'mes' ? 'bg-[#0d6b63] text-white' : 'text-slate-600 hover:text-slate-900'
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                filtroPeriodo === 'mes' ? 'bg-[#0d6b63] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               Por Mes
             </button>
           </div>
 
-          {/* Desplegables de Mes y Año cuando 'Por Mes' está activo */}
+          {/* Desplegables visibles solo en modo 'mes' */}
           {filtroPeriodo === 'mes' && (
             <>
               <select
                 value={mesSeleccionado}
                 onChange={(e) => setMesSeleccionado(Number(e.target.value))}
-                className="rounded-2xl border border-line bg-white px-3 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 cursor-pointer shadow-xs"
+                className="rounded-2xl border border-line bg-white px-3.5 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 cursor-pointer shadow-xs"
               >
                 {MESES.map((m, idx) => (
                   <option key={idx} value={idx + 1}>
@@ -187,7 +215,7 @@ export default function PanoramaOperativo({
               <select
                 value={anioSeleccionado}
                 onChange={(e) => setAnioSeleccionado(Number(e.target.value))}
-                className="rounded-2xl border border-line bg-white px-3 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 cursor-pointer shadow-xs"
+                className="rounded-2xl border border-line bg-white px-3.5 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 cursor-pointer shadow-xs"
               >
                 <option value={2026}>2026</option>
                 <option value={2025}>2025</option>
@@ -202,127 +230,111 @@ export default function PanoramaOperativo({
             title="Recargar datos"
             className="flex items-center gap-2 p-2 rounded-2xl bg-white border border-line text-xs font-bold text-slate-600 hover:text-[#0d6b63] hover:border-[#0d6b63] transition-all cursor-pointer shadow-xs disabled:opacity-50"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-[#0d6b63]' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-[#0d6b63]' : ''}`} />
           </button>
         </div>
       </div>
 
-      {/* GRILLA PRINCIPAL DE MÉTRICAS */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* GRILLA DE 5 TARJETAS DE MÉTRICAS */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
 
-        {/* 1. Capital Total Invertido / Disponible */}
+        {/* 1. CAPITAL TOTAL EN CAJA / INVERSIONISTAS */}
         <div className="p-5 rounded-3xl bg-white border border-line shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-              CAPITAL TOTAL INVERTIDO
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              FONDO INVERSIONISTAS
             </span>
-            <div className="p-2.5 rounded-2xl bg-slate-100 text-slate-700">
+            <div className="p-2 rounded-2xl bg-purple-50 text-purple-700">
+              <Wallet className="w-4 h-4" />
+            </div>
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-slate-900 tracking-tight">
+              ${metricas.capitalTotalInvertido.toLocaleString('es-AR')}
+            </p>
+            <span className="text-[10px] font-medium text-slate-400 mt-1 block">
+              Capital total disponible
+            </span>
+          </div>
+        </div>
+
+        {/* 2. CAPITAL PRESTADO / COLOCADO */}
+        <div className="p-5 rounded-3xl bg-white border border-line shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              CAPITAL PRESTADO
+            </span>
+            <div className="p-2 rounded-2xl bg-[#0d6b63]/10 text-[#0d6b63]">
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
           <div>
-            {loading ? (
-              <div className="space-y-2 py-1">
-                <div className="h-8 w-36 bg-slate-200/80 rounded-xl animate-pulse" />
-                <div className="h-3 w-28 bg-slate-100 rounded-md animate-pulse" />
-              </div>
-            ) : (
-              <>
-                <p className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
-                  ${metricas.capitalTotalDisponible.toLocaleString('es-AR')}
-                </p>
-                <span className="text-[11px] font-medium text-slate-400 mt-1 block">
-                  Suma de inversionistas habilitados
-                </span>
-              </>
-            )}
+            <p className="text-2xl font-bold text-[#0d6b63] tracking-tight">
+              ${metricas.capitalPrestado.toLocaleString('es-AR')}
+            </p>
+            <span className="text-[10px] font-medium text-slate-400 mt-1 block">
+              {filtroPeriodo === 'mes' ? `Colocado en ${MESES[mesSeleccionado - 1]}` : 'Total histórico prestado'}
+            </span>
           </div>
         </div>
 
-        {/* 2. Interés Generado */}
+        {/* 3. INTERÉS GENERADO (REAL COBRADO) */}
         <div className="p-5 rounded-3xl bg-white border border-line shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-              INTERÉS GENERADO
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              INTERÉS PERCIBIDO
             </span>
-            <div className="p-2.5 rounded-2xl bg-emerald-50 text-emerald-700">
+            <div className="p-2 rounded-2xl bg-emerald-50 text-emerald-700">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
           <div>
-            {loading ? (
-              <div className="space-y-2 py-1">
-                <div className="h-8 w-36 bg-emerald-100/60 rounded-xl animate-pulse" />
-                <div className="h-3 w-28 bg-slate-100 rounded-md animate-pulse" />
-              </div>
-            ) : (
-              <>
-                <p className="text-2xl sm:text-3xl font-bold text-emerald-700 tracking-tight">
-                  +${metricas.interesGenerado.toLocaleString('es-AR')}
-                </p>
-                <span className="text-[11px] font-medium text-emerald-600/80 mt-1 block">
-                  {filtroPeriodo === 'mes' ? `${MESES[mesSeleccionado - 1]} ${anioSeleccionado}` : 'Rendimiento acumulado'}
-                </span>
-              </>
-            )}
+            <p className="text-2xl font-bold text-emerald-700 tracking-tight">
+              +${metricas.interesGenerado.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <span className="text-[10px] font-medium text-emerald-600/80 mt-1 block">
+              {filtroPeriodo === 'mes' ? `Ganancia real ${MESES[mesSeleccionado - 1]}` : 'Ganancia real acumulada'}
+            </span>
           </div>
         </div>
 
-        {/* 3. Total Cobrado */}
+        {/* 4. TOTAL COBRADO */}
         <div className="p-5 rounded-3xl bg-white border border-line shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
               TOTAL COBRADO
             </span>
-            <div className="p-2.5 rounded-2xl bg-blue-50 text-blue-700">
+            <div className="p-2 rounded-2xl bg-blue-50 text-blue-700">
               <CheckCircle2 className="w-4 h-4" />
             </div>
           </div>
           <div>
-            {loading ? (
-              <div className="space-y-2 py-1">
-                <div className="h-8 w-36 bg-blue-100/60 rounded-xl animate-pulse" />
-                <div className="h-3 w-28 bg-slate-100 rounded-md animate-pulse" />
-              </div>
-            ) : (
-              <>
-                <p className="text-2xl sm:text-3xl font-bold text-blue-800 tracking-tight">
-                  ${metricas.totalCobrado.toLocaleString('es-AR')}
-                </p>
-                <span className="text-[11px] font-medium text-blue-600 mt-1 block">
-                  {filtroPeriodo === 'mes' ? `Cobros de ${MESES[mesSeleccionado - 1]}` : 'Recaudación acumulada'}
-                </span>
-              </>
-            )}
+            <p className="text-2xl font-bold text-blue-800 tracking-tight">
+              ${metricas.totalCobrado.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <span className="text-[10px] font-medium text-blue-600 mt-1 block">
+              {filtroPeriodo === 'mes' ? `Cobros de ${MESES[mesSeleccionado - 1]}` : 'Recaudación total'}
+            </span>
           </div>
         </div>
 
-        {/* 4. Balance Pendiente */}
+        {/* 5. BALANCE PENDIENTE */}
         <div className="p-5 rounded-3xl bg-white border border-line shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
               BALANCE PENDIENTE
             </span>
-            <div className="p-2.5 rounded-2xl bg-amber-50 text-amber-700">
+            <div className="p-2 rounded-2xl bg-amber-50 text-amber-700">
               <Clock className="w-4 h-4" />
             </div>
           </div>
           <div>
-            {loading ? (
-              <div className="space-y-2 py-1">
-                <div className="h-8 w-36 bg-amber-100/60 rounded-xl animate-pulse" />
-                <div className="h-3 w-28 bg-slate-100 rounded-md animate-pulse" />
-              </div>
-            ) : (
-              <>
-                <p className="text-2xl sm:text-3xl font-bold text-amber-700 tracking-tight">
-                  ${metricas.balancePendiente.toLocaleString('es-AR')}
-                </p>
-                <span className="text-[11px] font-medium text-amber-600/80 mt-1 block">
-                  {filtroPeriodo === 'mes' ? `Por cobrar de ${MESES[mesSeleccionado - 1]}` : 'Por cobrar en mercado'}
-                </span>
-              </>
-            )}
+            <p className="text-2xl font-bold text-amber-700 tracking-tight">
+              ${metricas.balancePendiente.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <span className="text-[10px] font-medium text-amber-600/80 mt-1 block">
+              {filtroPeriodo === 'mes' ? `Por cobrar de ${MESES[mesSeleccionado - 1]}` : 'Por cobrar en cartera'}
+            </span>
           </div>
         </div>
 
@@ -342,21 +354,12 @@ export default function PanoramaOperativo({
               <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                 INVERSORES ACTIVOS Y HABILITADOS
               </span>
-              {loading ? (
-                <div className="space-y-1.5 mt-1">
-                  <div className="h-7 w-48 bg-slate-200/80 rounded-xl animate-pulse" />
-                  <div className="h-3 w-64 bg-slate-100 rounded-md animate-pulse" />
-                </div>
-              ) : (
-                <>
-                  <p className="text-2xl font-bold text-slate-900 mt-0.5">
-                    {metricas.inversoresActivos} {metricas.inversoresActivos === 1 ? 'Inversor habilitado' : 'Inversores habilitados'}
-                  </p>
-                  <span className="text-xs text-slate-400 block mt-0.5">
-                    Hacé clic para gestionar perfiles, altas y deshabilitaciones
-                  </span>
-                </>
-              )}
+              <p className="text-2xl font-bold text-slate-900 mt-0.5">
+                {metricas.inversoresActivos} {metricas.inversoresActivos === 1 ? 'Inversor habilitado' : 'Inversores habilitados'}
+              </p>
+              <span className="text-xs text-slate-400 block mt-0.5">
+                Hacé clic para gestionar perfiles, fondos y deshabilitaciones
+              </span>
             </div>
           </div>
 

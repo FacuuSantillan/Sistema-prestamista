@@ -1,5 +1,17 @@
 import React, { useState, useEffect } from 'react'
-import { Search, RefreshCw, UserCheck, UserX, UserPlus, CreditCard, Receipt } from 'lucide-react'
+import { 
+  Search, 
+  RefreshCw, 
+  UserCheck, 
+  UserX, 
+  UserPlus, 
+  CreditCard, 
+  Receipt,
+  ShieldAlert,
+  Shield,
+  Briefcase,
+  Clock
+} from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 
 export default function RegistrosRecientes({ 
@@ -14,138 +26,143 @@ export default function RegistrosRecientes({
   // Estados de los Filtros
   const [busqueda, setBusqueda] = useState('')
   const [filtroTipo, setFiltroTipo] = useState('todos')
+  const [filtroRolAutor, setFiltroRolAutor] = useState('todos')
   const [filtroEstado, setFiltroEstado] = useState('todos')
   const [filtroPersona, setFiltroPersona] = useState('todas')
   const [ordenamiento, setOrdenamiento] = useState('recientes')
 
   const [personasOptions, setPersonasOptions] = useState([])
 
-  const cargarMovimientos = async () => {
+ const cargarMovimientos = async () => {
     setLoading(true)
     try {
-      // 1. Inversionistas / Usuarios
-      const { data: inversionistas } = await supabase
+      // 1. Cargar todos los perfiles de usuarios (Owners, Admins e Inversores)
+      const { data: usuarios } = await supabase
         .from('usuarios')
         .select('*')
 
-      // 2. Clientes
+      // 2. Cargar Clientes
       const { data: clientes } = await supabase
         .from('clientes')
         .select('*, provincias(nombre)')
 
-      // 3. Préstamos
+      // 3. Cargar Préstamos
       const { data: prestamos } = await supabase
         .from('prestamos')
         .select('*, clientes(nombre_completo)')
 
-      // 4. Pagos / Cobros
+      // 4. Cargar Pagos
       const { data: pagos } = await supabase
         .from('pagos')
         .select('*, clientes(nombre_completo)')
 
-      const setPersonas = new Set()
-      ;(inversionistas || []).forEach((inv) => {
-        const nombre = inv.nombre_completo || inv.nombre
-        if (nombre) setPersonas.add(nombre.trim())
+      const listaUsuarios = usuarios || []
+      const listaClientes = clientes || []
+      const listaPrestamos = prestamos || []
+      const listaPagos = pagos || []
+
+      // 💡 MAPA DE USUARIOS: Clave ID -> Objeto Usuario
+      const mapaUsuarios = {}
+      listaUsuarios.forEach((u) => {
+        mapaUsuarios[u.id] = u
       })
-      ;(clientes || []).forEach((c) => {
+
+      // Opciones para el filtro de personas
+      const setPersonas = new Set()
+      listaUsuarios.forEach((u) => {
+        if (u.nombre_completo) setPersonas.add(u.nombre_completo.trim())
+      })
+      listaClientes.forEach((c) => {
         if (c.nombre_completo) setPersonas.add(c.nombre_completo.trim())
       })
       setPersonasOptions(Array.from(setPersonas).sort())
 
-      // --- UNIFICACIÓN Y CLASIFICACIÓN DE EVENTOS ---
-      const listadoInversionistas = []
-      ;(inversionistas || []).forEach((inv) => {
-        const nombre = inv.nombre_completo || inv.nombre || 'Inversionista sin nombre'
-        const fechaCreacion = inv.creado_en || inv.created_at || new Date().toISOString()
-        const fechaActualizado = inv.actualizado_en || inv.updated_at
+      // --- 1. USUARIOS / INVERSORES / ADMINS ---
+      const listadoUsuarios = listaUsuarios.map((u) => {
+        const nombre = u.nombre_completo || 'Usuario sin nombre'
+        const fechaCreacion = u.created_at || u.creado_en || new Date().toISOString()
+        const rol = u.rol || 'inversionista'
 
-        // 🟢 CARTA 1: CREADO
-        listadoInversionistas.push({
-          id: `inv-creado-${inv.id}`,
-          tipo: 'INVERSIONISTA',
+        return {
+          id: `usr-${u.id}`,
+          tipo: rol.toUpperCase(),
           accion: 'CREADO',
-          subtitulo: 'Nuevo inversionista registrado',
+          subtitulo: 'Alta de perfil en plataforma',
           titulo: nombre,
           persona: nombre,
+          autorNombre: 'Sistema / Owner',
+          autorRol: 'owner',
           detalles: [
-            inv.telefono ? `Tel: ${inv.telefono}` : null,
-            inv.email ? `Email: ${inv.email}` : null
+            u.telefono ? `Tel: ${u.telefono}` : null,
+            u.email ? `Email: ${u.email}` : null,
+            Number(u.capital_disponible) > 0 ? `Capital: $${Number(u.capital_disponible).toLocaleString('es-AR')}` : null
           ].filter(Boolean).join(' · ') || 'Registrado en el sistema',
           estado: 'NUEVO REGISTRO',
           fechaRaw: fechaCreacion,
-          rawItem: inv
-        })
-
-        // CARTA 2: HABILITADO / DESHABILITADO (Solo si hubo un cambio posterior)
-        if (fechaActualizado && new Date(fechaActualizado) > new Date(fechaCreacion)) {
-          const estaActivo = inv.activo !== false
-          listadoInversionistas.push({
-            id: `inv-estado-${inv.id}-${fechaActualizado}`,
-            tipo: 'INVERSIONISTA',
-            accion: estaActivo ? 'HABILITADO' : 'DESHABILITADO',
-            subtitulo: estaActivo ? 'Perfil de inversionista reactivado' : 'Perfil de inversionista deshabilitado',
-            titulo: nombre,
-            persona: nombre,
-            detalles: estaActivo ? 'Acceso y bolsa de capital habilitados' : 'Suspendido temporalmente',
-            estado: estaActivo ? 'HABILITADO' : 'DESHABILITADO',
-            fechaRaw: fechaActualizado,
-            rawItem: inv
-          })
+          rawItem: u
         }
       })
 
-      const listadoClientes = []
-      ;(clientes || []).forEach((c) => {
+      // --- 2. CLIENTES ---
+      const listadoClientes = listaClientes.map((c) => {
         const nombre = c.nombre_completo || 'Cliente sin nombre'
-        const fechaCreacion = c.creado_en || c.created_at || new Date().toISOString()
-        const fechaActualizado = c.actualizado_en || c.updated_at
+        const fechaCreacion = c.created_at || c.creado_en || new Date().toISOString()
+        
+        // Quien creó el cliente (creado_por)
+        const creador = c.creado_por ? mapaUsuarios[c.creado_por] : null
+        const autorNombre = creador?.nombre_completo || 'Sistema / Owner'
+        const autorRol = creador?.rol || 'owner'
 
-        // 🟢 CARTA 1: CREADO
-        listadoClientes.push({
-          id: `cli-creado-${c.id}`,
+        // Inversor de la cartera asignada
+        const inversorCartera = c.inversionista_id ? mapaUsuarios[c.inversionista_id] : null
+        const nombreCartera = inversorCartera?.nombre_completo
+
+        return {
+          id: `cli-${c.id}`,
           tipo: 'CLIENTE',
           accion: 'CREADO',
-          subtitulo: 'Nuevo cliente registrado',
+          subtitulo: nombreCartera 
+            ? `Asignado a cartera de: ${nombreCartera}` 
+            : 'Nuevo cliente registrado',
           titulo: nombre,
           persona: nombre,
+          autorNombre: autorNombre,
+          autorRol: autorRol,
           detalles: [
-            c.provincias?.nombre || null,
-            c.telefono ? `Tel: ${c.telefono}` : null
+            c.provincias?.nombre ? `Prov: ${c.provincias.nombre}` : null,
+            c.telefono ? `Tel: ${c.telefono}` : null,
+            c.dni_cuit ? `DNI/CUIT: ${c.dni_cuit}` : null
           ].filter(Boolean).join(' · ') || 'Alta de cliente en sistema',
-          estado: 'NUEVO REGISTRO',
+          estado: c.activo !== false ? 'Activo' : 'Inactivo',
           fechaRaw: fechaCreacion,
           rawItem: c
-        })
-
-        // CARTA 2: HABILITADO / DESHABILITADO
-        if (fechaActualizado && new Date(fechaActualizado) > new Date(fechaCreacion)) {
-          const estaActivo = c.activo !== false
-          listadoClientes.push({
-            id: `cli-estado-${c.id}-${fechaActualizado}`,
-            tipo: 'CLIENTE',
-            accion: estaActivo ? 'HABILITADO' : 'DESHABILITADO',
-            subtitulo: estaActivo ? 'Perfil de cliente reactivado' : 'Perfil de cliente deshabilitado',
-            titulo: nombre,
-            persona: nombre,
-            detalles: estaActivo ? 'Habilitado para solicitar préstamos' : 'Suspendido temporalmente',
-            estado: estaActivo ? 'HABILITADO' : 'DESHABILITADO',
-            fechaRaw: fechaActualizado,
-            rawItem: c
-          })
         }
       })
 
-      // PRÉSTAMOS
-      const listadoPrestamos = (prestamos || []).map((p) => {
+      // --- 3. PRÉSTAMOS ---
+      const listadoPrestamos = listaPrestamos.map((p) => {
         const nombreCliente = p.clientes?.nombre_completo || 'Cliente'
+        
+        // Autor real que ejecutó el préstamo (creado_por)
+        const creador = p.creado_por ? mapaUsuarios[p.creado_por] : null
+        const autorNombre = creador?.nombre_completo || 'Administración'
+        const autorRol = creador?.rol || 'admin'
+
+        // Fondo del inversionista utilizado
+        const inversorFondo = p.inversionista_id ? mapaUsuarios[p.inversionista_id] : null
+        const nombreInversor = inversorFondo?.nombre_completo || null
+
         return {
           id: `p-${p.id}`,
           tipo: 'PRÉSTAMO',
           accion: 'PRÉSTAMO',
-          subtitulo: `Otorgado a ${nombreCliente}`,
+          subtitulo: nombreInversor 
+            ? `Otorgado a ${nombreCliente} · Fondo: ${nombreInversor}` 
+            : `Otorgado a ${nombreCliente}`,
           titulo: `Préstamo $${Number(p.monto_capital || 0).toLocaleString('es-AR')}`,
           persona: nombreCliente,
+          autorNombre: autorNombre,
+          autorRol: autorRol,
           detalles: `${p.cantidad_cuotas || 1} cuotas ${p.frecuencia || 'mensual'} · Total: $${Number(p.monto_total_pagar || 0).toLocaleString('es-AR')}`,
           estado: p.estado === 'finalizado' ? 'Finalizado' : 'Activo',
           fechaRaw: p.created_at || p.fecha_inicio || new Date().toISOString(),
@@ -153,16 +170,29 @@ export default function RegistrosRecientes({
         }
       })
 
-      // COBROS
-      const listadoPagos = (pagos || []).map((cobro) => {
+      // --- 4. COBROS / PAGOS ---
+      const listadoPagos = listaPagos.map((cobro) => {
         const nombreCliente = cobro.clientes?.nombre_completo || 'Cliente'
+        
+        // 💡 AQUÍ ESTÁ LA CLAVE: Buscar quién ejecutó la acción con 'creado_por'
+        const creador = cobro.creado_por ? mapaUsuarios[cobro.creado_por] : null
+        
+        // Si tiene creador registrado usa sus datos, si no, busca el inversionista
+        const autorNombre = creador?.nombre_completo || (cobro.inversionista_id ? mapaUsuarios[cobro.inversionista_id]?.nombre_completo : 'Administrador')
+        const autorRol = creador?.rol || 'admin'
+
+        const inversorCartera = cobro.inversionista_id ? mapaUsuarios[cobro.inversionista_id] : null
+        const nombreCartera = inversorCartera?.nombre_completo
+
         return {
           id: `pago-${cobro.id}`,
           tipo: 'COBRO',
           accion: 'COBRO',
-          subtitulo: `Cobro de ${nombreCliente}`,
-          titulo: `Ingreso $${Number(cobro.monto_cobrado || cobro.monto_pago || 0).toLocaleString('es-AR')}`,
+          subtitulo: nombreCartera ? `Cobro a ${nombreCliente} (${nombreCartera})` : `Cobro a ${nombreCliente}`,
+          titulo: `Ingreso $${Number(cobro.monto_cobrado || 0).toLocaleString('es-AR')}`,
           persona: nombreCliente,
+          autorNombre: autorNombre,
+          autorRol: autorRol,
           detalles: `Método: ${cobro.metodo_pago || 'efectivo'}${cobro.observaciones ? ` · ${cobro.observaciones}` : ''}`,
           estado: 'Registrado',
           fechaRaw: cobro.created_at || cobro.fecha_pago || new Date().toISOString(),
@@ -171,7 +201,7 @@ export default function RegistrosRecientes({
       })
 
       const todos = [
-        ...listadoInversionistas,
+        ...listadoUsuarios,
         ...listadoClientes,
         ...listadoPrestamos,
         ...listadoPagos
@@ -179,7 +209,7 @@ export default function RegistrosRecientes({
 
       setRegistros(todos)
     } catch (err) {
-      console.error('Error al unificar registros recientes:', err)
+      console.error('Error al unificar auditoría de registros:', err)
     } finally {
       setLoading(false)
     }
@@ -189,7 +219,7 @@ export default function RegistrosRecientes({
     cargarMovimientos()
 
     const canalFeed = supabase
-      .channel('schema-feed-changes')
+      .channel('audit-feed-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, () => cargarMovimientos())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, () => cargarMovimientos())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'prestamos' }, () => cargarMovimientos())
@@ -201,7 +231,7 @@ export default function RegistrosRecientes({
     }
   }, [])
 
-  // Lógica de Filtrado
+  // Filtrado y búsqueda
   const registrosFiltrados = registros
     .filter((reg) => {
       if (busqueda.trim() !== '') {
@@ -210,13 +240,18 @@ export default function RegistrosRecientes({
         const coincideSubtitulo = reg.subtitulo.toLowerCase().includes(query)
         const coincideDetalles = reg.detalles.toLowerCase().includes(query)
         const coincidePersona = reg.persona?.toLowerCase().includes(query)
+        const coincideAutor = reg.autorNombre?.toLowerCase().includes(query)
 
-        if (!coincideTitulo && !coincideSubtitulo && !coincideDetalles && !coincidePersona) {
+        if (!coincideTitulo && !coincideSubtitulo && !coincideDetalles && !coincidePersona && !coincideAutor) {
           return false
         }
       }
 
       if (filtroTipo !== 'todos' && reg.tipo.toLowerCase() !== filtroTipo.toLowerCase()) {
+        return false
+      }
+
+      if (filtroRolAutor !== 'todos' && reg.autorRol.toLowerCase() !== filtroRolAutor.toLowerCase()) {
         return false
       }
 
@@ -236,22 +271,23 @@ export default function RegistrosRecientes({
       return ordenamiento === 'recientes' ? fechaB - fechaA : fechaA - fechaB
     })
 
-  const formatearFechaRelativa = (fechaStr) => {
-    if (!fechaStr) return ''
+  // Formato exacto: DD/MM/AAAA - HH:MM:SS hs
+  const formatearFechaHoraExacta = (fechaStr) => {
+    if (!fechaStr) return 'Fecha sin registrar'
     const fecha = new Date(fechaStr)
     const dia = String(fecha.getDate()).padStart(2, '0')
     const mes = String(fecha.getMonth() + 1).padStart(2, '0')
-    const año = fecha.getFullYear()
+    const anio = fecha.getFullYear()
     const horas = String(fecha.getHours()).padStart(2, '0')
     const minutos = String(fecha.getMinutes()).padStart(2, '0')
-    return `${dia}/${mes}/${año} ${horas}:${minutos}`
+    const segundos = String(fecha.getSeconds()).padStart(2, '0')
+    return `${dia}/${mes}/${anio} · ${horas}:${minutos}:${segundos} hs`
   }
 
-  // Manejador del clic
   const handleItemClick = (reg) => {
     if (reg.tipo === 'CLIENTE' && onAbrirCliente) {
       onAbrirCliente(reg.rawItem)
-    } else if (reg.tipo === 'INVERSIONISTA' && onAbrirInversionista) {
+    } else if (['INVERSIONISTA', 'ADMIN', 'OWNER'].includes(reg.tipo) && onAbrirInversionista) {
       onAbrirInversionista(reg.rawItem)
     } else if (reg.tipo === 'PRÉSTAMO' && onVerFichaPrestamo) {
       onVerFichaPrestamo(reg.rawItem)
@@ -259,72 +295,93 @@ export default function RegistrosRecientes({
   }
 
   return (
-    <section className="w-[95%] mx-auto space-y-4 my-8">
+    <section className="w-[95%] mx-auto space-y-4 my-8 select-none">
       
       {/* Cabecera */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl sm:text-3xl font-serif font-bold text-[#1d2939]">
-          Registros recientes
-        </h2>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <span className="text-[10px] font-bold tracking-widest uppercase text-[#0d6b63]">
+            AUDITORÍA Y TRAZABILIDAD
+          </span>
+          <h2 className="text-2xl sm:text-3xl font-serif font-bold text-[#1d2939] mt-0.5">
+            Registro de actividades
+          </h2>
+        </div>
 
         <div className="flex items-center gap-3">
-          <span className="text-xs font-semibold text-slate-500 bg-white px-3 py-1.5 rounded-xl border border-line shadow-xs">
-            {registrosFiltrados.length} {registrosFiltrados.length === 1 ? 'registro' : 'registros'}
+          <span className="text-xs font-semibold text-slate-500 bg-white px-3.5 py-2 rounded-2xl border border-line shadow-xs">
+            {registrosFiltrados.length} {registrosFiltrados.length === 1 ? 'actividad' : 'actividades'}
           </span>
           <button
             onClick={cargarMovimientos}
             disabled={loading}
-            title="Actualizar registros"
-            className="p-2 rounded-xl bg-white border border-line text-slate-600 hover:text-[#0d6b63] hover:border-[#0d6b63] transition-all cursor-pointer shadow-xs disabled:opacity-50"
+            title="Actualizar auditoría"
+            className="p-2.5 rounded-2xl bg-white border border-line text-slate-600 hover:text-[#0d6b63] hover:border-[#0d6b63] transition-all cursor-pointer shadow-xs disabled:opacity-50"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-[#0d6b63]' : ''}`} />
           </button>
         </div>
       </div>
 
       {/* BARRA DE FILTROS */}
-      <div className="p-4 rounded-3xl bg-white border border-line shadow-xs space-y-3">
+      <div className="p-4 sm:p-5 rounded-3xl bg-white border border-line shadow-xs space-y-3">
         <div className="relative">
           <Search className="w-4 h-4 absolute left-4 top-3.5 text-slate-400" />
           <input
             type="text"
-            placeholder="Buscar clientes, préstamos o cobradores..."
+            placeholder="Buscar por cliente, monto, detalle o responsable que lo ejecutó..."
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
             className="w-full pl-11 pr-4 py-2.5 rounded-2xl border border-line bg-cream/40 text-sm font-medium text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
           />
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          
+          {/* Tipo de Registro */}
           <select
             value={filtroTipo}
             onChange={(e) => setFiltroTipo(e.target.value)}
-            className="w-full rounded-2xl border border-line bg-cream/30 px-4 py-2.5 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
+            className="w-full rounded-2xl border border-line bg-cream/30 px-3.5 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 cursor-pointer shadow-xs"
           >
-            <option value="todos">Todos los tipos</option>
-            <option value="inversionista">Inversionistas</option>
-            <option value="cliente">Clientes</option>
+            <option value="todos">Todos los módulos</option>
             <option value="préstamo">Préstamos</option>
             <option value="cobro">Cobros</option>
+            <option value="cliente">Clientes</option>
+            <option value="inversionista">Inversionistas</option>
+            <option value="admin">Administradores</option>
           </select>
 
+          {/* Quién lo realizó (Rol del autor) */}
+          <select
+            value={filtroRolAutor}
+            onChange={(e) => setFiltroRolAutor(e.target.value)}
+            className="w-full rounded-2xl border border-line bg-cream/30 px-3.5 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 cursor-pointer shadow-xs"
+          >
+            <option value="todos">Cualquier Responsable</option>
+            <option value="owner">Ejecutado por: Owner</option>
+            <option value="admin">Ejecutado por: Admin</option>
+            <option value="inversionista">Ejecutado por: Inversor</option>
+          </select>
+
+          {/* Estado */}
           <select
             value={filtroEstado}
             onChange={(e) => setFiltroEstado(e.target.value)}
-            className="w-full rounded-2xl border border-line bg-cream/30 px-4 py-2.5 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
+            className="w-full rounded-2xl border border-line bg-cream/30 px-3.5 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 cursor-pointer shadow-xs"
           >
             <option value="todos">Todos los estados</option>
             <option value="nuevo registro">Nuevo registro</option>
-            <option value="habilitado">Habilitado</option>
-            <option value="deshabilitado">Deshabilitado</option>
             <option value="activo">Activo</option>
+            <option value="registrado">Registrado</option>
             <option value="finalizado">Finalizado</option>
           </select>
 
+          {/* Persona involucrada */}
           <select
             value={filtroPersona}
             onChange={(e) => setFiltroPersona(e.target.value)}
-            className="w-full rounded-2xl border border-line bg-cream/30 px-4 py-2.5 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
+            className="w-full rounded-2xl border border-line bg-cream/30 px-3.5 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 cursor-pointer shadow-xs"
           >
             <option value="todas">Todas las personas</option>
             {personasOptions.map((persona, i) => (
@@ -334,97 +391,122 @@ export default function RegistrosRecientes({
             ))}
           </select>
 
+          {/* Orden cronológico */}
           <select
             value={ordenamiento}
             onChange={(e) => setOrdenamiento(e.target.value)}
-            className="w-full rounded-2xl border border-line bg-cream/30 px-4 py-2.5 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
+            className="w-full rounded-2xl border border-line bg-cream/30 px-3.5 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 cursor-pointer shadow-xs"
           >
-            <option value="recientes">Más recientes</option>
-            <option value="antiguos">Más antiguos</option>
+            <option value="recientes">Más recientes primero</option>
+            <option value="antiguos">Más antiguos primero</option>
           </select>
         </div>
       </div>
 
-      {/* GRILLA DE TARJETAS */}
+      {/* GRILLA DE TARJETAS AUDITABLES */}
       {loading ? (
-        <div className="p-8 text-center bg-white rounded-3xl border border-line text-xs font-medium text-slate-400">
-          Cargando historial de movimientos...
+        <div className="p-12 text-center bg-white rounded-3xl border border-line text-xs font-medium text-slate-400">
+          Cargando libro de auditoría...
         </div>
       ) : registrosFiltrados.length === 0 ? (
-        <div className="p-8 text-center bg-white rounded-3xl border border-line text-xs font-medium text-slate-400">
-          No se encontraron registros coincidentes con los filtros aplicados.
+        <div className="p-12 text-center bg-white rounded-3xl border border-line text-xs font-medium text-slate-400">
+          No se encontraron registros con los filtros seleccionados.
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {registrosFiltrados.map((reg) => {
-            const esClickeable = ['CLIENTE', 'INVERSIONISTA', 'PRÉSTAMO'].includes(reg.tipo)
+            const esClickeable = ['CLIENTE', 'INVERSIONISTA', 'PRÉSTAMO', 'ADMIN'].includes(reg.tipo)
 
-            // 🔴 CONFIGURACIÓN DE ESTILOS POR ACCIÓN
-            let cardEstilo = 'bg-white border-line hover:border-[#0d6b63]/40'
-            let badgeEstilo = 'bg-slate-100 text-slate-700'
-            let IconoAccion = UserPlus
+            // Badge y color del Tipo de Operación
+            let badgeTipoColor = 'bg-slate-100 text-slate-700'
+            let IconoOperacion = UserPlus
 
-            if (reg.accion === 'CREADO') {
-              // 🟢 CARTA CREACIÓN (Verde Teal suave)
-              cardEstilo = 'bg-white border-[#0d6b63]/30 hover:border-[#0d6b63] shadow-xs'
-              badgeEstilo = 'bg-[#0d6b63]/10 text-[#0d6b63] border border-[#0d6b63]/20 font-bold'
-              IconoAccion = UserPlus
-            } else if (reg.accion === 'HABILITADO') {
-              // 🟡 CARTA HABILITADO (Verde Esmeralda)
-              cardEstilo = 'bg-emerald-50/40 border-emerald-300/80 hover:border-emerald-400 shadow-xs'
-              badgeEstilo = 'bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold'
-              IconoAccion = UserCheck
-            } else if (reg.accion === 'DESHABILITADO') {
-              // 🔴 CARTA DESHABILITADO (Rojo/Rosado)
-              cardEstilo = 'bg-rose-50/50 border-rose-300/80 hover:border-rose-400 shadow-xs'
-              badgeEstilo = 'bg-rose-100 text-rose-800 border border-rose-300 font-bold'
-              IconoAccion = UserX
+            if (reg.tipo === 'PRÉSTAMO') {
+              badgeTipoColor = 'bg-[#0d6b63]/10 text-[#0d6b63] border border-[#0d6b63]/20'
+              IconoOperacion = CreditCard
             } else if (reg.tipo === 'COBRO') {
-              badgeEstilo = 'bg-blue-100 text-blue-800'
-              IconoAccion = Receipt
-            } else if (reg.tipo === 'PRÉSTAMO') {
-              badgeEstilo = reg.estado === 'Finalizado' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
-              IconoAccion = CreditCard
+              badgeTipoColor = 'bg-blue-100 text-blue-800 border border-blue-200'
+              IconoOperacion = Receipt
+            } else if (reg.tipo === 'INVERSIONISTA') {
+              badgeTipoColor = 'bg-purple-100 text-purple-800 border border-purple-200'
+              IconoOperacion = Briefcase
+            } else if (reg.tipo === 'CLIENTE') {
+              badgeTipoColor = 'bg-amber-100 text-amber-800 border border-amber-200'
+              IconoOperacion = UserCheck
+            }
+
+            // Badge del Rol Responsable
+            let badgeRolColor = 'bg-slate-100 text-slate-600'
+            let IconoRol = Shield
+
+            if (reg.autorRol === 'owner') {
+              badgeRolColor = 'bg-rose-100 text-rose-800 font-bold border border-rose-200'
+              IconoRol = ShieldAlert
+            } else if (reg.autorRol === 'admin') {
+              badgeRolColor = 'bg-blue-100 text-blue-800 font-bold border border-blue-200'
+              IconoRol = Shield
+            } else if (reg.autorRol === 'inversionista') {
+              badgeRolColor = 'bg-emerald-100 text-emerald-800 font-bold border border-emerald-200'
+              IconoRol = Briefcase
             }
 
             return (
               <div
                 key={reg.id}
                 onClick={() => handleItemClick(reg)}
-                className={`p-5 rounded-3xl border shadow-xs hover:shadow-md transition-all flex flex-col justify-between relative ${cardEstilo} ${
+                className={`p-5 rounded-3xl bg-white border border-line shadow-xs hover:shadow-md hover:border-[#0d6b63]/40 transition-all flex flex-col justify-between ${
                   esClickeable ? 'cursor-pointer' : ''
                 }`}
               >
                 <div>
-                  {/* Encabezado */}
-                  <div className="flex items-center justify-between mb-2.5">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-[#0d6b63]">
-                      {reg.tipo}
+                  {/* Encabezado: Tipo de evento y Estado */}
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-xl flex items-center gap-1.5 ${badgeTipoColor}`}>
+                      <IconoOperacion className="w-3.5 h-3.5" />
+                      <span>{reg.tipo}</span>
                     </span>
 
-                    <span className={`text-[10px] uppercase px-2.5 py-0.5 rounded-full flex items-center gap-1 ${badgeEstilo}`}>
-                      <IconoAccion className="w-3 h-3" />
-                      <span>{reg.estado}</span>
+                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-slate-50 text-slate-500 border border-slate-200/60">
+                      {reg.estado}
                     </span>
                   </div>
 
-                  {/* Nombre o Título */}
+                  {/* Título Principal y Subtítulo */}
                   <h3 className="text-lg font-bold text-slate-900 leading-snug">
                     {reg.titulo}
                   </h3>
-
-                  {/* Subtítulo descriptivo */}
                   <p className="text-xs text-slate-500 font-medium mt-0.5">
                     {reg.subtitulo}
                   </p>
+
+                  {/* Detalle secundario */}
+                  <p className="text-[11px] font-semibold text-slate-600 mt-2 line-clamp-2">
+                    {reg.detalles}
+                  </p>
                 </div>
 
-                {/* Pie de Tarjeta con detalles y fecha/hora exacta */}
-                <div className="pt-4 mt-3 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-400 font-medium">
-                  <span className="truncate pr-2 font-medium text-slate-600">{reg.detalles}</span>
-                  <span className="shrink-0 font-semibold text-slate-500">
-                    {formatearFechaRelativa(reg.fechaRaw)}
-                  </span>
+                {/* Bloque Inferior: Autor y Timestamp Exacto */}
+                <div className="pt-3.5 mt-3.5 border-t border-slate-100 space-y-2">
+                  
+                  {/* Responsable de la acción */}
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400 font-medium">Ejecutado por:</span>
+                    <span className={`text-[10px] uppercase px-2 py-0.5 rounded-lg flex items-center gap-1 ${badgeRolColor}`}>
+                      <IconoRol className="w-3 h-3" />
+                      <span>{reg.autorRol}: {reg.autorNombre}</span>
+                    </span>
+                  </div>
+
+                  {/* Fecha y Hora Exacta */}
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                    <span className="flex items-center gap-1 text-slate-400">
+                      <Clock className="w-3 h-3" /> Fecha y Hora:
+                    </span>
+                    <span className="font-semibold text-slate-700">
+                      {formatearFechaHoraExacta(reg.fechaRaw)}
+                    </span>
+                  </div>
+
                 </div>
               </div>
             )

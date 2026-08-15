@@ -193,11 +193,8 @@ export default function GraficoEstadistico() {
       {/* Cabecera */}
       <div className="p-5 sm:p-6 rounded-3xl bg-white border border-line shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <span className="text-[10px] font-bold tracking-widest uppercase text-[#0d6b63]">
-            PANEL MÉTRICO
-          </span>
           <h2 className="text-2xl sm:text-3xl font-serif font-bold text-[#1d2939] mt-0.5">
-            Panorama Operativo
+            Estadisticas
           </h2>
         </div>
 
@@ -266,7 +263,7 @@ export default function GraficoEstadistico() {
 
         <div className="p-4 sm:p-5 rounded-3xl bg-white border border-line shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Inversores Alta</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Inversores creados</span>
             <div className="p-1.5 rounded-lg bg-amber-50 text-amber-600"><Briefcase className="w-4 h-4" /></div>
           </div>
           <p className="text-2xl font-bold text-slate-800">{totalesPeriodo.inversionistas}</p>

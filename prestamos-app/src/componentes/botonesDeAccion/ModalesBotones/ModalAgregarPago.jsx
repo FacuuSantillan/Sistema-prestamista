@@ -126,7 +126,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
     }
   }
 
-  // 2. Cargar préstamos activos del cliente seleccionado (y pertenecientes al inversionista)
+  // 2. Cargar préstamos activos del cliente seleccionado
   useEffect(() => {
     if (!formData.cliente_id || !isOpen) return
 
@@ -139,7 +139,6 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
           .eq('cliente_id', formData.cliente_id)
           .neq('estado', 'finalizado')
 
-        // Si es inversionista, se restringe la busqueda estricta por su ID
         if (usuarioLogueado?.rol === 'inversionista' && usuarioLogueado?.id) {
           query = query.eq('inversionista_id', usuarioLogueado.id)
         }
@@ -182,10 +181,10 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
 
         if (error) throw error
 
-        const totalPagado = pagos ? pagos.reduce((acc, curr) => acc + Number(curr.monto_cobrado || curr.monto_pago || 0), 0) : 0
+        const totalPagado = pagos ? pagos.reduce((acc, curr) => acc + Number(curr.monto_cobrado || 0), 0) : 0
         
-        const montoTotalPagar = Number(prestamo.monto_total_pagar || prestamo.monto_total || 0)
-        const cantidadCuotas = Math.max(1, Number(prestamo.cantidad_cuotas || prestamo.plazo_cuotas || 1))
+        const montoTotalPagar = Number(prestamo.monto_total_pagar || 0)
+        const cantidadCuotas = Math.max(1, Number(prestamo.cantidad_cuotas || 1))
         
         const montoCuotaCalculado = montoTotalPagar / cantidadCuotas
         const montoCuota = Number(prestamo.monto_cuota) || montoCuotaCalculado || 0
@@ -271,13 +270,21 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
     const prestamoActual = prestamosCliente.find((p) => p.id === formData.prestamo_id)
 
     try {
+      // Obtener el ID del usuario autenticado (desde props o Supabase Auth)
+      let usuarioId = usuarioLogueado?.id
+      if (!usuarioId) {
+        const { data: authData } = await supabase.auth.getUser()
+        usuarioId = authData?.user?.id
+      }
+
       const payload = {
         prestamo_id: formData.prestamo_id,
         cliente_id: formData.cliente_id,
         inversionista_id: prestamoActual?.inversionista_id || null,
+        creado_por: usuarioId || null,
         monto_cobrado: monto,
         metodo_pago: formData.metodo_pago,
-        fecha_pago: formData.fecha_pago,
+        fecha_pago: formData.fecha_pago ? new Date(`${formData.fecha_pago}T12:00:00Z`).toISOString() : new Date().toISOString(),
         observaciones: formData.observaciones || null
       }
 
@@ -296,7 +303,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
         0
       )
 
-      const montoTotalPagar = Number(prestamoActual?.monto_total_pagar || prestamoActual?.monto_total || 0)
+      const montoTotalPagar = Number(prestamoActual?.monto_total_pagar || 0)
 
       if (totalAcumuladoDB >= (montoTotalPagar - 0.50)) {
         const { error: errorPrestamo } = await supabase
@@ -417,7 +424,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
             </div>
           </div>
 
-          {/* Tarjeta Informativa de Cuota Parcial o Pendiente */}
+          {/* Tarjeta Informativa de Cuota */}
           {formData.prestamo_id && (
             <div className={`p-4 rounded-2xl border ${detalleCobro.esParcial ? 'bg-amber-50 border-amber-300' : 'bg-[#0d6b63]/5 border-[#0d6b63]/20'}`}>
               <div className="flex items-start justify-between">
