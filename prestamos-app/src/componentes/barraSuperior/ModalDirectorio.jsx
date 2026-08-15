@@ -365,64 +365,15 @@ export default function ModalDirectorio({
         {/* CABECERA */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-line shrink-0">
           <div>
-            <span className="text-[11px] font-bold tracking-widest uppercase text-[#0d6b63]">
-              DIRECTORIO DE BÚSQUEDA
-            </span>
+          
             <h2 className="text-2xl sm:text-3xl font-serif font-bold text-[#1d2939]">
               {esInversionista 
                 ? 'Mis Clientes Asociados' 
-                : (tipo === 'clientes' ? 'Perfil de Clientes' : 'Perfil de Inversionistas')}
+                : (tipo === 'clientes' ? 'Informacion General' : 'Informacion General')}
             </h2>
           </div>
 
-          <div className="flex items-center gap-2 bg-white/80 p-1.5 rounded-2xl border border-line">
-            <button
-              onClick={() => setTipo('clientes')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                tipo === 'clientes' ? 'bg-[#0d6b63] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <User className="w-4 h-4" />
-              <span>Clientes</span>
-            </button>
-
-            {!esInversionista && (
-              <button
-                onClick={() => setTipo('inversionistas')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  tipo === 'inversionistas' ? 'bg-[#0d6b63] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Briefcase className="w-4 h-4" />
-                <span>Inversionistas</span>
-              </button>
-            )}
-
-            <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 rounded-xl cursor-pointer">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* 🔴 VISTA 1: INVERSIONISTAS (FILTRADO POR ROL STRICTO - SOLO OWNER / ADMIN) */}
-        {tipo === 'inversionistas' && !esInversionista ? (
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pt-4 flex-1 overflow-hidden">
-            
-            {/* IZQUIERDA (md:col-span-8): Ficha del Inversionista, Métricas y Préstamos */}
-            <div className="md:col-span-8 flex flex-col h-full overflow-y-auto pr-1 space-y-5">
-              
-              {/* Selector de Inversionista */}
-              <div className="p-4 rounded-2xl bg-white border border-line shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 relative">
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#0d6b63]">
-                    INVERSIONISTA SELECCIONADO
-                  </span>
-                  <h3 className="text-xl font-serif font-bold text-slate-900 mt-0.5">
-                    {inversionistaSeleccionado?.nombre_completo || inversionistaSeleccionado?.nombre || 'Seleccioná un inversionista'}
-                  </h3>
-                </div>
-
-                <div className="relative">
+          <div className="relative">
                   {(() => {
                     const soloInversionistas = listaInversionistas.filter(
                       (inv) => inv.rol === 'inversionista'
@@ -432,10 +383,10 @@ export default function ModalDirectorio({
                       <>
                         <button
                           onClick={() => setMenuInversionistasAbierto(!menuInversionistasAbierto)}
-                          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0d6b63] text-white text-xs font-bold shadow-xs hover:bg-[#0b5a52] transition-colors cursor-pointer"
+                          className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[#0d6b63] text-white text-xs font-bold shadow-xs hover:bg-[#0b5a52] transition-colors cursor-pointer"
                         >
                           <Users className="w-4 h-4" />
-                          <span>Ver Listado Inversionistas ({soloInversionistas.length})</span>
+                          <span>Inversionistas ({soloInversionistas.length})</span>
                           <ChevronDown className="w-4 h-4 ml-1" />
                         </button>
 
@@ -476,7 +427,45 @@ export default function ModalDirectorio({
                     );
                   })()}
                 </div>
-              </div>
+
+          <div className="flex items-center gap-2 bg-white/80 p-1.5 rounded-2xl border border-line">
+            
+            <button
+              onClick={() => setTipo('clientes')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                tipo === 'clientes' ? 'bg-[#0d6b63] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <User className="w-4 h-4" />
+              <span>Clientes</span>
+            </button>
+
+            {!esInversionista && (
+              <button
+                onClick={() => setTipo('inversionistas')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  tipo === 'inversionistas' ? 'bg-[#0d6b63] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Briefcase className="w-4 h-4" />
+                <span>Inversionistas</span>
+              </button>
+            )}
+
+            <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 rounded-xl cursor-pointer">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* 🔴 VISTA 1: INVERSIONISTAS (FILTRADO POR ROL STRICTO - SOLO OWNER / ADMIN) */}
+        {tipo === 'inversionistas' && !esInversionista ? (
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pt-4 flex-1 overflow-hidden">
+            
+            {/* IZQUIERDA (md:col-span-8): Ficha del Inversionista, Métricas y Préstamos */}
+            <div className="md:col-span-8 flex flex-col h-full overflow-y-auto pr-1 space-y-5">
+              
+            
 
               {/* Ficha General */}
               {inversionistaSeleccionado && (
@@ -590,7 +579,7 @@ export default function ModalDirectorio({
                                   <button 
                                     onClick={() => onVerFichaPrestamo(p)} 
                                     className="p-2.5 rounded-xl bg-[#0d6b63]/10 text-[#0d6b63] hover:bg-[#0d6b63] hover:text-white transition-colors cursor-pointer"
-                                    title="Ver Ficha Técnica"
+                                    title="Ver Ficha Prestamo"
                                   >
                                     <Eye className="w-4 h-4" />
                                   </button>
