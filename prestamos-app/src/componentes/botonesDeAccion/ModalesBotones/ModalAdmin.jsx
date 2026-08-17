@@ -1,9 +1,9 @@
 import React, { useState } from 'react'
 import { X, Lock, Mail, ShieldCheck, User } from 'lucide-react'
-import { createClient } from '@supabase/supabase-js' // 👈 1. Importar createClient
+import { createClient } from '@supabase/supabase-js'
 import { supabase } from '../../../lib/supabaseClient'
 
-export default function ModalAdmin({ isOpen, onClose, onSuccess }) {
+export default function ModalAdmin({ isOpen, onClose, onSuccess, usuarioLogueado = null }) {
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
 
@@ -14,9 +14,22 @@ export default function ModalAdmin({ isOpen, onClose, onSuccess }) {
     password: ''
   })
 
+  const capitalizarPalabras = (texto) => {
+    if (!texto) return ''
+    return texto
+      .toLowerCase()
+      .replace(/(?:^|\s|-)\S/g, (caracter) => caracter.toUpperCase())
+  }
+
   const handleChange = (e) => {
     const { name, value } = e.target
-    setFormData((prev) => ({ ...prev, [name]: value }))
+
+    let valorFinal = value
+    if (name === 'nombre_completo') {
+      valorFinal = capitalizarPalabras(value)
+    }
+
+    setFormData((prev) => ({ ...prev, [name]: valorFinal }))
   }
 
   const handleSubmit = async (e) => {
@@ -25,57 +38,111 @@ export default function ModalAdmin({ isOpen, onClose, onSuccess }) {
     setErrorMsg('')
 
     const emailLimpio = formData.email.trim()
+    const nombreLimpio = formData.nombre_completo.trim()
 
     try {
-      // 💡 2. CREAMOS EL CLIENTE TEMPORAL QUE NO PERSISTA LA SESIÓN
+      // 1. Obtener el ID y datos del Owner/Admin autenticado
+      let creadorId = usuarioLogueado?.id
+      if (!creadorId) {
+        const { data: authUserResp } = await supabase.auth.getUser()
+        creadorId = authUserResp?.user?.id || null
+      }
+
+      let autorNombre = 'Sistema / Owner'
+      let autorRol = 'owner'
+
+      if (creadorId) {
+        const { data: autorData } = await supabase
+          .from('usuarios')
+          .select('nombre_completo, rol')
+          .eq('id', creadorId)
+          .maybeSingle()
+
+        if (autorData) {
+          autorNombre = autorData.nombre_completo || 'Administrador'
+          autorRol = autorData.rol || 'owner'
+        }
+      }
+
+      // 2. Cliente auxiliar en memoria volátil (evita desloguearte)
       const supabaseAuxiliar = createClient(
         import.meta.env.VITE_SUPABASE_URL,
         import.meta.env.VITE_SUPABASE_ANON_KEY,
         {
           auth: {
-            persistSession: false // 👈 EVITA QUE SE SOBREESCRIBA TU SESIÓN
+            autoRefreshToken: false,
+            persistSession: false,
+            detectSessionInUrl: false,
+            storage: {
+              getItem: () => null,
+              setItem: () => {},
+              removeItem: () => {}
+            }
           }
         }
       )
 
-      // 1. CREAR EL USUARIO EN SUPABASE AUTH (Usando el cliente auxiliar)
+      // 3. Crear credenciales en Supabase Auth
       const { data: authData, error: authError } = await supabaseAuxiliar.auth.signUp({
         email: emailLimpio,
         password: formData.password.trim(),
         options: {
           data: {
-            nombre_completo: formData.nombre_completo,
+            nombre_completo: nombreLimpio,
             rol: 'admin'
           }
         }
       })
 
-      if (authError) {
-        throw new Error(`Error en autenticación: ${authError.message}`)
-      }
+      if (authError) throw new Error(`Error en autenticación: ${authError.message}`)
 
       const nuevoUserId = authData.user?.id
+      if (!nuevoUserId) throw new Error('No se pudo obtener el ID del nuevo administrador.')
 
-      if (!nuevoUserId) {
-        throw new Error('No se pudo obtener el identificador único del administrador.')
-      }
-
-      // 2. INSERTAR EL PERFIL CON ROL 'admin' EN LA TABLA 'usuarios' (Usando tu cliente principal)
+      // 4. Insertar en la tabla 'usuarios'
       const payload = {
         id: nuevoUserId,
-        nombre_completo: formData.nombre_completo,
-        telefono: formData.telefono,
-        creado_por: user.id, // 👈 Aquí se guarda quién ejecutó la acción
+        nombre_completo: nombreLimpio,
+        telefono: formData.telefono ? formData.telefono.trim() : null,
+        email: emailLimpio,
         rol: 'admin',
-        activo: true,
-        capital_disponible: 0
+        creado_por: creadorId,
+        activo: true
       }
 
-      const { error: dbError } = await supabase.from('usuarios').insert([payload])
+      const { data: adminCreado, error: dbError } = await supabase
+        .from('usuarios')
+        .insert([payload])
+        .select()
+        .single()
 
       if (dbError) throw dbError
 
-      // Reset del formulario
+      // 5. Registrar el evento en la tabla 'auditoria_actividades'
+      const auditPayload = {
+        tipo: 'ADMIN',
+        accion: 'CREADO',
+        titulo: nombreLimpio,
+        subtitulo: 'Alta de Administrador en plataforma',
+        detalles: [
+          formData.telefono ? `Tel: ${formData.telefono.trim()}` : null,
+          `Email: ${emailLimpio}`
+        ].filter(Boolean).join(' · ') || 'Nuevo administrador registrado',
+        persona: nombreLimpio,
+        autor_id: creadorId,
+        autor_nombre: autorNombre,
+        autor_rol: autorRol,
+        estado: 'NUEVO REGISTRO',
+        metadata: adminCreado || payload
+      }
+
+      const { error: auditError } = await supabase
+        .from('auditoria_actividades')
+        .insert([auditPayload])
+
+      if (auditError) console.warn('Aviso al guardar auditoría de administrador:', auditError.message)
+
+      // Éxito: limpiar y cerrar
       setFormData({
         nombre_completo: '',
         telefono: '',
@@ -85,9 +152,10 @@ export default function ModalAdmin({ isOpen, onClose, onSuccess }) {
 
       if (onSuccess) onSuccess()
       onClose()
+
     } catch (err) {
       console.error('Error al crear administrador:', err)
-      setErrorMsg(err.message || 'No se pudo crear el administrador. Intentalo de nuevo.')
+      setErrorMsg(err.message || 'No se pudo crear el perfil de administrador.')
     } finally {
       setLoading(false)
     }
@@ -132,6 +200,8 @@ export default function ModalAdmin({ isOpen, onClose, onSuccess }) {
                 type="text"
                 name="nombre_completo"
                 required
+                autoComplete="name"
+                autoCapitalize="words"
                 value={formData.nombre_completo}
                 onChange={handleChange}
                 placeholder="Ej. Carlos Gómez"

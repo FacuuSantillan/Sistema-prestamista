@@ -37,24 +37,57 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
     }
   }, [isOpen])
 
-  const handleChange = (e) => {
-    const { name, value } = e.target
-    setFormData((prev) => ({ ...prev, [name]: value }))
+  const capitalizarPalabras = (texto) => {
+    if (!texto) return ''
+    return texto
+      .toLowerCase()
+      .replace(/(?:^|\s|-)\S/g, (caracter) => caracter.toUpperCase())
   }
 
- const handleSubmit = async (e) => {
+  const handleChange = (e) => {
+    const { name, value } = e.target
+
+    let valorFinal = value
+    if (name === 'nombre_completo' || name === 'direccion') {
+      valorFinal = capitalizarPalabras(value)
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: valorFinal
+    }))
+  }
+
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
     setErrorMsg('')
 
     const emailLimpio = formData.email.trim()
+    const nombreLimpio = formData.nombre_completo.trim()
 
     try {
-      // 💡 1. OBTENER PRIMERO EL USUARIO AUTENTICADO QUE ESTÁ HACIENDO EL ALTA
+      // 1. Obtener el usuario autenticado (Owner o Admin) que ejecuta el alta
       const { data: authUserResp } = await supabase.auth.getUser()
       const creadorId = authUserResp?.user?.id || null
 
-      // 💡 2. CLIENTE AUXILIAR EN MEMORIA (NO PERSISTE NI DESLOGUEA)
+      let autorNombre = 'Sistema / Owner'
+      let autorRol = 'owner'
+
+      if (creadorId) {
+        const { data: autorData } = await supabase
+          .from('usuarios')
+          .select('nombre_completo, rol')
+          .eq('id', creadorId)
+          .maybeSingle()
+
+        if (autorData) {
+          autorNombre = autorData.nombre_completo || 'Administrador'
+          autorRol = autorData.rol || 'admin'
+        }
+      }
+
+      // 2. Cliente auxiliar en memoria volátil (no persiste ni desloguea al usuario actual)
       const supabaseAuxiliar = createClient(
         import.meta.env.VITE_SUPABASE_URL,
         import.meta.env.VITE_SUPABASE_ANON_KEY,
@@ -72,13 +105,13 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
         }
       )
 
-      // 3. REGISTRAR EN SUPABASE AUTH
+      // 3. Registrar credenciales en Supabase Auth
       const { data: authData, error: authError } = await supabaseAuxiliar.auth.signUp({
         email: emailLimpio,
         password: formData.password.trim(),
         options: {
           data: {
-            nombre_completo: formData.nombre_completo,
+            nombre_completo: nombreLimpio,
             rol: 'inversionista'
           }
         }
@@ -89,22 +122,53 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
       const nuevoUserId = authData.user?.id
       if (!nuevoUserId) throw new Error('No se pudo obtener el ID del nuevo inversionista.')
 
-      // 4. INSERTAR EN LA TABLA 'usuarios'
-      const payload = {
+      // 4. Insertar en la tabla 'usuarios'
+      const payloadUsuario = {
         id: nuevoUserId,
-        nombre_completo: formData.nombre_completo,
-        telefono: formData.telefono,
+        nombre_completo: nombreLimpio,
+        telefono: formData.telefono ? formData.telefono.trim() : null,
         email: emailLimpio,
         rol: 'inversionista',
-        creado_por: creadorId, // 👈 Ahora usa 'creadorId' (nunca más 'user is not defined')
+        creado_por: creadorId,
         provincia_id: formData.provincia_id || null,
         capital_disponible: Number(formData.capital_disponible || 0),
         activo: true
       }
 
-      const { error: dbError } = await supabase.from('usuarios').insert([payload])
+      const { data: usuarioCreado, error: dbError } = await supabase
+        .from('usuarios')
+        .insert([payloadUsuario])
+        .select()
+        .single()
 
       if (dbError) throw dbError
+
+      // 5. Registrar el evento en la tabla 'auditoria_actividades'
+      const auditPayload = {
+        tipo: 'INVERSIONISTA',
+        accion: 'CREADO',
+        titulo: nombreLimpio,
+        subtitulo: 'Alta de perfil en plataforma',
+        detalles: [
+          formData.telefono ? `Tel: ${formData.telefono.trim()}` : null,
+          `Email: ${emailLimpio}`,
+          Number(formData.capital_disponible) > 0 
+            ? `Capital inicial: $${Number(formData.capital_disponible).toLocaleString('es-AR')}` 
+            : null
+        ].filter(Boolean).join(' · ') || 'Nuevo inversionista registrado',
+        persona: nombreLimpio,
+        autor_id: creadorId,
+        autor_nombre: autorNombre,
+        autor_rol: autorRol,
+        estado: 'NUEVO REGISTRO',
+        metadata: usuarioCreado || payloadUsuario
+      }
+
+      const { error: auditError } = await supabase
+        .from('auditoria_actividades')
+        .insert([auditPayload])
+
+      if (auditError) console.warn('Aviso al guardar auditoría:', auditError.message)
 
       // Éxito: Reset y cierre
       setFormData({
@@ -137,7 +201,7 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
         <div className="flex items-start justify-between mb-6">
           <div>
             <span className="text-[11px] font-bold tracking-widest uppercase text-[#0d6b63]">
-              ALTA DE INVERSIONISTA
+              ALTA DE USUARIO
             </span>
             <h2 className="text-2xl sm:text-3xl font-serif font-bold text-[#1d2939] mt-0.5">
               Nuevo Inversor
@@ -164,9 +228,11 @@ export default function ModalInversionista({ isOpen, onClose, onSuccess }) {
                 type="text"
                 name="nombre_completo"
                 required
+                autoComplete="name"
+                autoCapitalize="words"
                 value={formData.nombre_completo}
                 onChange={handleChange}
-                placeholder="Ej. María Salcedo"
+                placeholder="Ej. Jorge Diaz"
                 className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm text-ink placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
               />
             </div>

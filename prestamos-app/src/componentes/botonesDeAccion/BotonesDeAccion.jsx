@@ -17,10 +17,9 @@ export default function BotonesDeAccion({
   provinciaSeleccionada, 
   setProvinciaSeleccionada, 
   provincias = [],
-  rolUsuario = "admin" // 'owner' | 'admin' | 'inversionista'
+  rolUsuario = "admin" 
 }) {
 
-  // 1. CONFIGURACIÓN DE NAVEGACIÓN Y CONSULTA
   const VISTAS = [
     { 
       id: "clientes",
@@ -40,7 +39,6 @@ export default function BotonesDeAccion({
 
   // 2. CONFIGURACIÓN DE ALTAS Y MODALES
   const ACCIONES = [
-    // 🔴 Jerarquía de Negocio (Exclusivos del Owner)
     { 
       id: "admin", 
       label: "Agregar admin", 
@@ -51,10 +49,8 @@ export default function BotonesDeAccion({
       id: "inversionista", 
       label: "Agregar inversor", 
       icon: UserPlus, 
-      roles: ["owner"] 
+      roles: ["owner", "admin"] 
     },
-
-    // 🟢 Operativa Diaria (Disponibles para Admin y Owner)
     { 
       id: "cliente", 
       label: "Agregar cliente", 

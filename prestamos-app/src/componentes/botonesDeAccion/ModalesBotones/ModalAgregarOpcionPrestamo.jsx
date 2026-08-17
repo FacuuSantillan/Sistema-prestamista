@@ -134,9 +134,7 @@ export default function ModalCrearPlan({ isOpen, onClose, onSuccess }) {
         {/* Cabecera */}
         <div className="flex justify-between items-center mb-4">
           <div>
-            <span className="text-[11px] font-bold tracking-widest uppercase text-[#0d6b63]">
-              CONFIGURACIÓN
-            </span>
+          
             <h2 className="text-xl font-bold font-serif text-[#1d2939] mt-0.5">
               Opciones de préstamo
             </h2>

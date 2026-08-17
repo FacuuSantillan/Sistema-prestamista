@@ -37,11 +37,8 @@ export default function ModalCliente({ isOpen, onClose, onSuccess, usuarioLoguea
           .order('nombre', { ascending: true })
 
         setProvincias(provData || [])
-        if (provData && provData.length > 0) {
-          setFormData((prev) => ({ ...prev, provincia_id: provData[0].id }))
-        }
 
-        // 2. Cargar Inversionistas desde la tabla 'usuarios'
+        // 2. Cargar Inversionistas activos
         const { data: invData, error: errInv } = await supabase
           .from('usuarios')
           .select('id, nombre_completo, rol, activo')
@@ -57,12 +54,7 @@ export default function ModalCliente({ isOpen, onClose, onSuccess, usuarioLoguea
           })
 
           setInversionistas(inversionistasValidos)
-
-          if (inversionistasValidos.length > 0) {
-            setFormData((prev) => ({ ...prev, inversionista_id: inversionistasValidos[0].id }))
-          }
         }
-
       } catch (err) {
         console.error('Error al cargar datos iniciales:', err)
       }
@@ -71,9 +63,25 @@ export default function ModalCliente({ isOpen, onClose, onSuccess, usuarioLoguea
     fetchInicial()
   }, [isOpen])
 
+  const capitalizarPalabras = (texto) => {
+    if (!texto) return ''
+    return texto
+      .toLowerCase()
+      .replace(/(?:^|\s|-)\S/g, (caracter) => caracter.toUpperCase())
+  }
+
   const handleChange = (e) => {
     const { name, value } = e.target
-    setFormData((prev) => ({ ...prev, [name]: value }))
+
+    let valorFinal = value
+    if (name === 'nombre_completo') {
+      valorFinal = capitalizarPalabras(value)
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: valorFinal
+    }))
   }
 
   const handleSubmit = async (e) => {
@@ -81,7 +89,9 @@ export default function ModalCliente({ isOpen, onClose, onSuccess, usuarioLoguea
     setLoading(true)
     setErrorMsg('')
 
-    if (!formData.nombre_completo.trim()) {
+    const nombreLimpio = formData.nombre_completo.trim()
+
+    if (!nombreLimpio) {
       setErrorMsg('El nombre completo es obligatorio.')
       setLoading(false)
       return
@@ -94,25 +104,75 @@ export default function ModalCliente({ isOpen, onClose, onSuccess, usuarioLoguea
     }
 
     try {
-      // 💡 1. OBTENER EL USUARIO AUTENTICADO DE FORMA SEGURA
+      // 1. Obtener usuario autenticado responsable
       let usuarioId = usuarioLogueado?.id
       if (!usuarioId) {
         const { data: authUserResp } = await supabase.auth.getUser()
         usuarioId = authUserResp?.user?.id || null
       }
 
-      const payload = {
-        nombre_completo: formData.nombre_completo.trim(),
+      let autorNombre = 'Sistema / Owner'
+      let autorRol = 'owner'
+
+      if (usuarioId) {
+        const { data: autorData } = await supabase
+          .from('usuarios')
+          .select('nombre_completo, rol')
+          .eq('id', usuarioId)
+          .maybeSingle()
+
+        if (autorData) {
+          autorNombre = autorData.nombre_completo || 'Administrador'
+          autorRol = autorData.rol || 'admin'
+        }
+      }
+
+      // 2. Insertar cliente en la tabla 'clientes'
+      const payloadCliente = {
+        nombre_completo: nombreLimpio,
         telefono: formData.telefono.trim() || null,
-        creado_por: usuarioId, // 👈 Ahora utiliza usuarioId correctamente definido
+        creado_por: usuarioId,
         inversionista_id: formData.origen === 'inversionista' && formData.inversionista_id ? formData.inversionista_id : null,
         provincia_id: formData.provincia_id || null,
         activo: true
       }
 
-      const { error } = await supabase.from('clientes').insert([payload])
+      const { data: clienteCreado, error: errorCliente } = await supabase
+        .from('clientes')
+        .insert([payloadCliente])
+        .select()
+        .single()
 
-      if (error) throw error
+      if (errorCliente) throw errorCliente
+
+      // 3. Registrar el evento en la tabla 'auditoria_actividades'
+      const inversorAsignado = inversionistas.find((i) => i.id === payloadCliente.inversionista_id)
+      const subtituloAuditoria = payloadCliente.inversionista_id && inversorAsignado
+        ? `Asignado a cartera de: ${inversorAsignado.nombre_completo}`
+        : 'Nuevo cliente registrado'
+
+      const auditPayload = {
+        tipo: 'CLIENTE',
+        accion: 'CREADO',
+        titulo: nombreLimpio,
+        subtitulo: subtituloAuditoria,
+        detalles: [
+          formData.telefono ? `Tel: ${formData.telefono.trim()}` : null,
+          payloadCliente.inversionista_id ? 'Origen: Inversionista' : 'Origen: Propio (Administrador)'
+        ].filter(Boolean).join(' · ') || 'Alta de cliente en el sistema',
+        persona: nombreLimpio,
+        autor_id: usuarioId,
+        autor_nombre: autorNombre,
+        autor_rol: autorRol,
+        estado: 'Activo',
+        metadata: clienteCreado || payloadCliente
+      }
+
+      const { error: auditError } = await supabase
+        .from('auditoria_actividades')
+        .insert([auditPayload])
+
+      if (auditError) console.warn('Aviso al guardar auditoría:', auditError.message)
 
       if (onSuccess) onSuccess()
       onClose()
@@ -134,10 +194,10 @@ export default function ModalCliente({ isOpen, onClose, onSuccess, usuarioLoguea
         <div className="flex items-start justify-between mb-6">
           <div>
             <span className="text-[11px] font-bold tracking-widest uppercase text-[#0d6b63]">
-              ALTA DE REGISTRO
+              ALTA DE CLIENTE
             </span>
             <h2 className="text-2xl sm:text-3xl font-serif font-bold text-[#1d2939] mt-0.5">
-              Nuevo movimiento
+              Nuevo Cliente
             </h2>
           </div>
           <button
@@ -174,6 +234,8 @@ export default function ModalCliente({ isOpen, onClose, onSuccess, usuarioLoguea
                 type="text"
                 name="nombre_completo"
                 required
+                autoComplete="name"
+                autoCapitalize="words"
                 value={formData.nombre_completo}
                 onChange={handleChange}
                 placeholder="Ej. María González"
@@ -213,26 +275,24 @@ export default function ModalCliente({ isOpen, onClose, onSuccess, usuarioLoguea
               </select>
             </div>
 
-            {provincias.length > 0 && (
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Provincia
-                </label>
-                <select
-                  name="provincia_id"
-                  value={formData.provincia_id}
-                  onChange={handleChange}
-                  className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
-                >
-                  <option value="">Sin especificar</option>
-                  {provincias.map((prov) => (
-                    <option key={prov.id} value={prov.id}>
-                      {prov.nombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Provincia
+              </label>
+              <select
+                name="provincia_id"
+                value={formData.provincia_id}
+                onChange={handleChange}
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
+              >
+                <option value="">-- Sin especificar --</option>
+                {provincias.map((prov) => (
+                  <option key={prov.id} value={prov.id}>
+                    {prov.nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {/* Inversionista Asignado */}
@@ -248,15 +308,12 @@ export default function ModalCliente({ isOpen, onClose, onSuccess, usuarioLoguea
                 onChange={handleChange}
                 className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
               >
-                {inversionistas.length === 0 ? (
-                  <option value="">No hay inversionistas registrados en la tabla usuarios</option>
-                ) : (
-                  inversionistas.map((inv) => (
-                    <option key={inv.id} value={inv.id}>
-                      {inv.nombre_completo}
-                    </option>
-                  ))
-                )}
+                <option value="">-- Seleccioná un inversionista --</option>
+                {inversionistas.map((inv) => (
+                  <option key={inv.id} value={inv.id}>
+                    {inv.nombre_completo}
+                  </option>
+                ))}
               </select>
             </div>
           )}
@@ -280,7 +337,7 @@ export default function ModalCliente({ isOpen, onClose, onSuccess, usuarioLoguea
               disabled={loading}
               className="px-5 py-2.5 rounded-2xl bg-[#0d6b63] text-white font-bold text-sm shadow-sm hover:bg-[#0b5a52] transition-colors disabled:opacity-50 cursor-pointer"
             >
-              {loading ? 'Guardando...' : 'Guardar movimiento'}
+              {loading ? 'Guardando...' : 'Guardar cliente'}
             </button>
           </div>
 

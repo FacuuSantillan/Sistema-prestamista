@@ -31,7 +31,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
     esParcial: false
   })
 
-  // 1. Cargar clientes filtrados según rol al abrir el modal
+  // 1. Cargar clientes al abrir el modal (iniciando siempre vacío)
   useEffect(() => {
     if (isOpen) {
       setFormData({
@@ -42,13 +42,14 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
         fecha_pago: new Date().toISOString().split('T')[0],
         observaciones: ''
       })
+      setPrestamosCliente([])
+      resetDetalleCobro()
       setErrorMsg('')
 
       cargarClientesDeInversionista(usuarioLogueado)
     }
   }, [isOpen, usuarioLogueado])
 
-  // Función para cargar sólo clientes con préstamos ACTIVOS del inversionista logueado
   const cargarClientesDeInversionista = async (usuario) => {
     try {
       const esInversionista = usuario?.rol === 'inversionista'
@@ -56,7 +57,6 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
       if (esInversionista && usuario?.id) {
         const invId = usuario.id
 
-        // Buscar préstamos ACTIVOS de este inversionista
         const { data: prestamosActivos, error: errP } = await supabase
           .from('prestamos')
           .select('cliente_id')
@@ -65,16 +65,13 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
 
         if (errP) throw errP
 
-        // Extraer IDs únicos de los clientes
         const clienteIdsActivos = [...new Set((prestamosActivos || []).map((p) => p.cliente_id))].filter(Boolean)
 
         if (clienteIdsActivos.length === 0) {
           setClientes([])
-          setFormData((prev) => ({ ...prev, cliente_id: '' }))
           return
         }
 
-        // Obtener datos de los clientes filtrados
         const { data: dataClientes, error: errC } = await supabase
           .from('clientes')
           .select('id, nombre_completo')
@@ -82,15 +79,8 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
           .order('nombre_completo', { ascending: true })
 
         if (errC) throw errC
-
-        const listaClientes = dataClientes || []
-        setClientes(listaClientes)
-
-        if (listaClientes.length > 0) {
-          setFormData((prev) => ({ ...prev, cliente_id: listaClientes[0].id }))
-        }
+        setClientes(dataClientes || [])
       } else {
-        // Para Admin / Owner: Cargar todos los clientes con préstamos activos
         const { data: prestamosActivos, error: errP } = await supabase
           .from('prestamos')
           .select('cliente_id')
@@ -112,13 +102,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
           .order('nombre_completo', { ascending: true })
 
         if (errC) throw errC
-
-        const listaClientes = dataClientes || []
-        setClientes(listaClientes)
-
-        if (listaClientes.length > 0) {
-          setFormData((prev) => ({ ...prev, cliente_id: listaClientes[0].id }))
-        }
+        setClientes(dataClientes || [])
       }
     } catch (err) {
       console.error('Error al cargar clientes con préstamos activos:', err)
@@ -128,7 +112,14 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
 
   // 2. Cargar préstamos activos del cliente seleccionado
   useEffect(() => {
-    if (!formData.cliente_id || !isOpen) return
+    if (!isOpen) return
+
+    if (!formData.cliente_id) {
+      setPrestamosCliente([])
+      setFormData((prev) => ({ ...prev, prestamo_id: '', monto_pago: '' }))
+      resetDetalleCobro()
+      return
+    }
 
     async function loadPrestamos() {
       setFetchingPrestamos(true)
@@ -147,14 +138,9 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
 
         if (error) throw error
 
-        if (data && data.length > 0) {
-          setPrestamosCliente(data)
-          setFormData((prev) => ({ ...prev, prestamo_id: data[0].id }))
-        } else {
-          setPrestamosCliente([])
-          setFormData((prev) => ({ ...prev, prestamo_id: '', monto_pago: '' }))
-          resetDetalleCobro()
-        }
+        setPrestamosCliente(data || [])
+        setFormData((prev) => ({ ...prev, prestamo_id: '', monto_pago: '' }))
+        resetDetalleCobro()
       } catch (err) {
         console.error('Error al cargar préstamos del cliente:', err)
       } finally {
@@ -167,7 +153,10 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
 
   // 3. Calcular cuotas y saldos al cambiar el préstamo seleccionado
   useEffect(() => {
-    if (!formData.prestamo_id || prestamosCliente.length === 0) return
+    if (!formData.prestamo_id || prestamosCliente.length === 0) {
+      resetDetalleCobro()
+      return
+    }
 
     const prestamo = prestamosCliente.find((p) => p.id === formData.prestamo_id)
     if (!prestamo) return
@@ -254,6 +243,12 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
     setLoading(true)
     setErrorMsg('')
 
+    if (!formData.cliente_id) {
+      setErrorMsg('Debes seleccionar un cliente.')
+      setLoading(false)
+      return
+    }
+
     if (!formData.prestamo_id) {
       setErrorMsg('Debes seleccionar un préstamo activo para registrar el pago.')
       setLoading(false)
@@ -268,15 +263,34 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
     }
 
     const prestamoActual = prestamosCliente.find((p) => p.id === formData.prestamo_id)
+    const clienteActual = clientes.find((c) => c.id === formData.cliente_id)
+    const nombreCliente = clienteActual?.nombre_completo || 'Cliente'
 
     try {
-      // Obtener el ID del usuario autenticado (desde props o Supabase Auth)
+      // 1. Obtener datos del usuario logueado responsable
       let usuarioId = usuarioLogueado?.id
       if (!usuarioId) {
         const { data: authData } = await supabase.auth.getUser()
         usuarioId = authData?.user?.id
       }
 
+      let autorNombre = 'Administración'
+      let autorRol = 'admin'
+
+      if (usuarioId) {
+        const { data: autorData } = await supabase
+          .from('usuarios')
+          .select('nombre_completo, rol')
+          .eq('id', usuarioId)
+          .maybeSingle()
+
+        if (autorData) {
+          autorNombre = autorData.nombre_completo || 'Administración'
+          autorRol = autorData.rol || 'admin'
+        }
+      }
+
+      // 2. Insertar pago en la tabla 'pagos'
       const payload = {
         prestamo_id: formData.prestamo_id,
         cliente_id: formData.cliente_id,
@@ -285,12 +299,42 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
         monto_cobrado: monto,
         metodo_pago: formData.metodo_pago,
         fecha_pago: formData.fecha_pago ? new Date(`${formData.fecha_pago}T12:00:00Z`).toISOString() : new Date().toISOString(),
-        observaciones: formData.observaciones || null
+        observaciones: formData.observaciones?.trim() || null
       }
 
-      const { error: errorPago } = await supabase.from('pagos').insert([payload])
+      const { data: pagoCreado, error: errorPago } = await supabase
+        .from('pagos')
+        .insert([payload])
+        .select()
+        .single()
+
       if (errorPago) throw errorPago
 
+      // 3. Registrar el evento en la tabla 'auditoria_actividades'
+      const auditPayload = {
+        tipo: 'COBRO',
+        accion: 'COBRO',
+        titulo: `Ingreso $${monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`,
+        subtitulo: `Cobro a ${nombreCliente}`,
+        detalles: `Método: ${formData.metodo_pago}${formData.observaciones ? ` · ${formData.observaciones.trim()}` : ''}`,
+        persona: nombreCliente,
+        autor_id: usuarioId || null,
+        autor_nombre: autorNombre,
+        autor_rol: autorRol,
+        estado: 'Registrado',
+        metadata: {
+          ...(pagoCreado || payload),
+          clientes: { nombre_completo: nombreCliente }
+        }
+      }
+
+      const { error: errAudit } = await supabase
+        .from('auditoria_actividades')
+        .insert([auditPayload])
+
+      if (errAudit) console.warn('Aviso al registrar auditoría de cobro:', errAudit.message)
+
+      // 4. Verificar si el préstamo se canceló en su totalidad
       const { data: todosLosPagos, error: errSum } = await supabase
         .from('pagos')
         .select('monto_cobrado')
@@ -327,7 +371,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs select-none">
       <div className="w-full max-w-xl rounded-3xl bg-cream p-6 sm:p-8 shadow-2xl border border-line max-h-[92vh] overflow-y-auto">
         
         {/* Cabecera */}
@@ -375,7 +419,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
                 required
                 value={formData.cliente_id}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
               >
                 {clientes.length === 0 ? (
                   <option value="">No tenés clientes con préstamos activos</option>
@@ -402,7 +446,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
                 disabled={fetchingPrestamos || prestamosCliente.length === 0 || !formData.cliente_id}
                 value={formData.prestamo_id}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] disabled:opacity-50"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] disabled:opacity-50 cursor-pointer"
               >
                 {fetchingPrestamos ? (
                   <option value="">Buscando préstamos...</option>
@@ -486,7 +530,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
                 name="metodo_pago"
                 value={formData.metodo_pago}
                 onChange={handleChange}
-                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63]"
+                className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
               >
                 <option value="efectivo">💵 Efectivo</option>
                 <option value="transferencia">🏦 Transferencia Bancaria</option>
@@ -543,7 +587,7 @@ export default function ModalPago({ isOpen, onClose, onSuccess, usuarioLogueado 
             </button>
             <button
               type="submit"
-              disabled={loading || prestamosCliente.length === 0}
+              disabled={loading || !formData.prestamo_id}
               className="px-5 py-2.5 rounded-2xl bg-[#0d6b63] text-white font-bold text-sm shadow-sm hover:bg-[#0b5a52] transition-colors disabled:opacity-50 cursor-pointer"
             >
               {loading ? 'Registrando...' : 'Registrar cobro'}

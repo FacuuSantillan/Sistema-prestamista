@@ -19,7 +19,7 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
     frecuencia: 'mensual'
   })
 
-  // 1. Cargar Planes, Clientes e Inversionistas al abrir el modal
+  // 1. Cargar Planes, Clientes e Inversionistas al abrir el modal (todo en blanco)
   useEffect(() => {
     if (!isOpen) return
 
@@ -35,7 +35,7 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
 
     async function cargarDatosIniciales() {
       try {
-        // A. Cargar Opciones/Planes de Préstamos
+        // A. Cargar Planes de Préstamos
         const { data: dataPlanes, error: errPlanes } = await supabase
           .from('planes_prestamo')
           .select('*')
@@ -65,22 +65,6 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
         if (errInvs) throw errInvs
         setInversionistas(dataInvs || [])
 
-        // Valores por defecto
-        if (dataPlanes && dataPlanes.length > 0) {
-          setFormData((prev) => ({ 
-            ...prev, 
-            plan_id: dataPlanes[0].id,
-            cantidad_cuotas: dataPlanes[0].plazo_cuotas || 12,
-            frecuencia: dataPlanes[0].frecuencia_pago || 'mensual'
-          }))
-        }
-        if (dataClientes && dataClientes.length > 0) {
-          setFormData((prev) => ({ ...prev, cliente_id: dataClientes[0].id }))
-        }
-        if (dataInvs && dataInvs.length > 0) {
-          setFormData((prev) => ({ ...prev, inversionista_id: dataInvs[0].id }))
-        }
-
       } catch (err) {
         console.error('Error al cargar datos del modal:', err)
         setErrorMsg('No se pudieron cargar los datos iniciales.')
@@ -90,21 +74,21 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
     cargarDatosIniciales()
   }, [isOpen])
 
-  // 2. Obtener el plan de préstamo actualmente seleccionado
-  const planSeleccionado = planes.find((p) => p.id === formData.plan_id) || planes[0]
+  // 2. Obtener el plan de préstamo (solo si fue seleccionado por el usuario)
+  const planSeleccionado = planes.find((p) => p.id === formData.plan_id) || null
 
   // 3. Cálculos Dinámicos
   const montoCapital = Number(planSeleccionado?.monto || 0)
   const tasaInteres = Number(planSeleccionado?.tasa_interes || 0)
-  const montoTotalDevolver = montoCapital + (montoCapital * (tasaInteres / 100))
+  const montoTotalDevolver = montoCapital > 0 ? montoCapital + (montoCapital * (tasaInteres / 100)) : 0
   const cantidadCuotas = Math.max(1, Number(formData.cantidad_cuotas || 1))
-  const valorCuota = montoTotalDevolver / cantidadCuotas
+  const valorCuota = montoCapital > 0 ? (montoTotalDevolver / cantidadCuotas) : 0
 
   const handleChange = (e) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
 
-    // Actualizar cuotas por defecto si cambia el plan
+    // Actualizar cuotas y frecuencia si cambia el plan seleccionado
     if (name === 'plan_id') {
       const nuevoPlan = planes.find((p) => p.id === value)
       if (nuevoPlan) {
@@ -118,11 +102,17 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
     }
   }
 
-  // 4. Guardar Préstamo en Supabase
+  // 4. Guardar Préstamo en Supabase y registrar en Auditoría
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
     setErrorMsg('')
+
+    if (!formData.plan_id) {
+      setErrorMsg('Debes seleccionar una opción de préstamo.')
+      setLoading(false)
+      return
+    }
 
     if (!formData.cliente_id) {
       setErrorMsg('Debes seleccionar un cliente.')
@@ -137,17 +127,34 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
     }
 
     try {
-      // 💡 Obtener el ID del usuario que crea el préstamo
+      // Obtener el ID y datos del autor que ejecuta la creación
       let usuarioId = usuarioLogueado?.id
       if (!usuarioId) {
         const { data: authUserResp } = await supabase.auth.getUser()
         usuarioId = authUserResp?.user?.id || null
       }
 
+      let autorNombre = 'Administración'
+      let autorRol = 'admin'
+
+      if (usuarioId) {
+        const { data: autorData } = await supabase
+          .from('usuarios')
+          .select('nombre_completo, rol')
+          .eq('id', usuarioId)
+          .maybeSingle()
+
+        if (autorData) {
+          autorNombre = autorData.nombre_completo || 'Administración'
+          autorRol = autorData.rol || 'admin'
+        }
+      }
+
+      // 1. Guardar préstamo en la tabla 'prestamos'
       const payload = {
         cliente_id: formData.cliente_id,
         inversionista_id: formData.inversionista_id,
-        creado_por: usuarioId, // 👈 Registra al usuario responsable sin errores
+        creado_por: usuarioId,
         monto_capital: montoCapital,
         monto_total_pagar: montoTotalDevolver,
         cantidad_cuotas: cantidadCuotas,
@@ -157,9 +164,45 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
         estado: 'activo'
       }
 
-      const { error } = await supabase.from('prestamos').insert([payload])
+      const { data: prestamoCreado, error: errorPrestamo } = await supabase
+        .from('prestamos')
+        .insert([payload])
+        .select()
+        .single()
 
-      if (error) throw error
+      if (errorPrestamo) throw errorPrestamo
+
+      // 2. Obtener nombres auxiliares para la tarjeta de auditoría
+      const clienteEncontrado = clientes.find((c) => c.id === formData.cliente_id)
+      const inversionistaEncontrado = inversionistas.find((i) => i.id === formData.inversionista_id)
+
+      const nombreCliente = clienteEncontrado?.nombre_completo || 'Cliente'
+      const nombreInversionista = inversionistaEncontrado?.nombre_completo || 'Inversionista'
+
+      // 3. Registrar el evento en la tabla 'auditoria_actividades'
+      const auditPayload = {
+        tipo: 'PRÉSTAMO',
+        accion: 'CREADO',
+        titulo: `Préstamo $${montoCapital.toLocaleString('es-AR')}`,
+        subtitulo: `Otorgado a ${nombreCliente} · Fondo: ${nombreInversionista}`,
+        detalles: `${cantidadCuotas} cuotas ${formData.frecuencia || 'mensual'} · Total: $${montoTotalDevolver.toLocaleString('es-AR')}`,
+        persona: nombreCliente,
+        autor_id: usuarioId,
+        autor_nombre: autorNombre,
+        autor_rol: autorRol,
+        estado: 'Activo',
+        metadata: {
+          ...(prestamoCreado || payload),
+          clientes: { nombre_completo: nombreCliente },
+          inversionistas: { nombre_completo: nombreInversionista }
+        }
+      }
+
+      const { error: auditError } = await supabase
+        .from('auditoria_actividades')
+        .insert([auditPayload])
+
+      if (auditError) console.warn('Aviso al registrar auditoría del préstamo:', auditError.message)
 
       if (onSuccess) onSuccess()
       onClose()
@@ -211,15 +254,12 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
               onChange={handleChange}
               className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
             >
-              {planes.length === 0 ? (
-                <option value="">No hay opciones creadas</option>
-              ) : (
-                planes.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nombre} — Monto: ${Number(p.monto).toLocaleString('es-AR')} | Tasa: {p.tasa_interes}%
-                  </option>
-                ))
-              )}
+              <option value="">-- Seleccioná una opción de préstamo --</option>
+              {planes.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nombre} — Monto: ${Number(p.monto).toLocaleString('es-AR')} | Tasa: {p.tasa_interes}%
+                </option>
+              ))}
             </select>
           </div>
 
@@ -236,15 +276,12 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
                 onChange={handleChange}
                 className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
               >
-                {clientes.length === 0 ? (
-                  <option value="">No hay clientes activos</option>
-                ) : (
-                  clientes.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.nombre_completo}
-                    </option>
-                  ))
-                )}
+                <option value="">-- Seleccioná un cliente --</option>
+                {clientes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombre_completo}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -259,15 +296,12 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
                 onChange={handleChange}
                 className="w-full rounded-2xl border border-line bg-white px-4 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0d6b63]/20 focus:border-[#0d6b63] cursor-pointer"
               >
-                {inversionistas.length === 0 ? (
-                  <option value="">No hay inversionistas registrados</option>
-                ) : (
-                  inversionistas.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.nombre_completo}
-                    </option>
-                  ))
-                )}
+                <option value="">-- Seleccioná un inversionista --</option>
+                {inversionistas.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.nombre_completo}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -333,7 +367,7 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
                   Total a devolver ({cantidadCuotas} cuotas)
                 </span>
                 <span className="text-xl font-bold text-[#0d6b63]">
-                  ${montoTotalDevolver.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  ${montoTotalDevolver.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
             </div>
@@ -343,7 +377,7 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
                 Valor cuota
               </span>
               <span className="text-lg font-bold text-slate-900">
-                ${valorCuota.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                ${valorCuota.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
             </div>
           </div>
@@ -365,7 +399,7 @@ export default function ModalNuevoPrestamo({ isOpen, onClose, onSuccess, usuario
             </button>
             <button
               type="submit"
-              disabled={loading || planes.length === 0}
+              disabled={loading || !formData.plan_id}
               className="px-5 py-2.5 rounded-2xl bg-[#0d6b63] text-white font-bold text-sm shadow-sm hover:bg-[#0b5a52] transition-colors disabled:opacity-50 cursor-pointer"
             >
               {loading ? 'Guardando...' : 'Guardar préstamo'}

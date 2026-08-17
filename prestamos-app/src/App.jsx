@@ -13,13 +13,14 @@ import ModalCliente from './componentes/botonesDeAccion/ModalesBotones/modalClie
 import ModalAgregarOpcionPrestamo from './componentes/botonesDeAccion/ModalesBotones/ModalAgregarOpcionPrestamo'
 import ModalAgregarPrestamo from "./componentes/botonesDeAccion/ModalesBotones/ModalAgregarPrestamo"
 import ModalPago from './componentes/botonesDeAccion/ModalesBotones/ModalAgregarPago'
-import ModalDirectorio from "./componentes/barraSuperior/ModalDirectorio"
+import ModalDirectorio from "./componentes/barraSuperior/modalDirectorio/ModalDirectorio"
 import BotonesDeAccion from './componentes/botonesDeAccion/BotonesDeAccion'
 import ModalFichaPrestamo from './componentes/botonesDeAccion/ModalesBotones/ModalFichaPrestamo'
 import PanoramaEstadisticas from './componentes/panoramaEstadisticas/PanoramaEstadisticas'
 import GraficoEstadistico from './componentes/panoramaEstadisticas/GraficoEstadistico'
 import ModalAdmin from './componentes/botonesDeAccion/ModalesBotones/ModalAdmin'
 import RegistrosRecientes from './componentes/Registros/RegistrosRecientes'
+import ModalEditarInversionista from './componentes/barraSuperior/modalDirectorio/ModalEditarInversionista'
 
 export default function App() {
   const [usuario, setUsuario] = useState(null)
@@ -190,6 +191,8 @@ const redimensionarVentana = async (esDashboard) => {
         onSuccess={handleRefreshData}
 
       />
+
+     
 
       <ModalAdmin
       rolUsuario={usuario?.rol}
