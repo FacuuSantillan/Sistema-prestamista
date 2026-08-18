@@ -136,7 +136,7 @@ export default function FichaInversionista({
                   <div className="flex items-center gap-3">
                     <div className="text-right">
                       <span className="text-xs font-bold text-slate-700 block">
-                        Retorno Esperado: ${Number(p.monto_total_pagar || p.monto_total || 0).toLocaleString('es-AR')}
+                        Retorno Esperado: <b className="text-[#0d6b63] text-[13px]">${Number(p.monto_total_pagar || p.monto_total || 0).toLocaleString('es-AR')}</b>
                       </span>
                       <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full inline-block mt-1 ${
                         p.estado === 'finalizado' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
