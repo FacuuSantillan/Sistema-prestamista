@@ -279,7 +279,7 @@ export default function GraficoEstadistico() {
 
         <div className="p-4 sm:p-5 rounded-3xl bg-white border border-line shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Rendimiento (Interés)</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Rendimiento total</span>
             <div className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600"><TrendingUp className="w-4 h-4" /></div>
           </div>
           <p className="text-2xl font-bold text-emerald-600">
